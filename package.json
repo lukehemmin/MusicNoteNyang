@@ -1,0 +1,20 @@
+{
+  "name": "musicnotenyang",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Lukehemmin",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@discordjs/builders": "^1.9.0",
+    "@discordjs/rest": "^2.4.0",
+    "discord-api-types": "^0.37.100",
+    "discord.js": "^14.16.2",
+    "dotenv": "^16.4.5",
+    "erela.js": "^2.4.0"
+  }
+}
