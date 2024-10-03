@@ -14,14 +14,13 @@ const client = new Client({
 });
 
 client.manager = new Manager({
-  nodes: [
-    {
-      host: process.env.LAVALINK_HOST,
-      port: parseInt(process.env.LAVALINK_PORT),
-      password: process.env.LAVALINK_PASSWORD,
-      secure: false, // SSL/TLS를 사용하는 경우 true로 설정
-    },
-  ],
+  nodes: [{
+    host: process.env.LAVALINK_HOST,
+    port: parseInt(process.env.LAVALINK_PORT),
+    password: process.env.LAVALINK_PASSWORD,
+    secure: process.env.LAVALINK_SECURE.toLowerCase() === 'true',
+    debug: (message) => console.log(`[Lavalink Debug] ${message}`),
+  }],
   send: (id, payload) => {
     const guild = client.guilds.cache.get(id);
     if (guild) guild.shard.send(payload);
