@@ -2,7 +2,6 @@ from discord import app_commands
 import discord
 import re
 import wavelink
-from lavalink.custom_player import CustomPlayer
 
 def is_youtube_url(url: str) -> bool:
     """유튜브 URL인지 확인"""
@@ -39,9 +38,6 @@ def setup_music_commands(bot):
             
             # 트랙 검색
             tracks = await wavelink.Playable.search(search_query)
-            from collections import deque
-            if isinstance(tracks, deque):
-                tracks = list(tracks)
             
             if not tracks:
                 await interaction.followup.send("❌ 검색 결과를 찾을 수 없습니다.")
@@ -51,51 +47,33 @@ def setup_music_commands(bot):
             
             # 음성 채널 연결
             if not interaction.guild.voice_client:
-                vc: CustomPlayer = await interaction.user.voice.channel.connect(cls=CustomPlayer)
+                vc: wavelink.Player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
             else:
-                vc: CustomPlayer = interaction.guild.voice_client
+                vc: wavelink.Player = interaction.guild.voice_client
             
-            # 음악 재생 또는 대기열에 추가
-            if vc.is_playing():
-                # 대기열에 추가
-                vc.queue.append(track)
-                embed = discord.Embed(
-                    title="🎵 대기열에 추가됨",
-                    description=f"[{track.title}]({track.uri})",
-                    color=discord.Color.green()
-                )
-                embed.add_field(
-                    name="길이",
-                    value=f"{int(track.length//60)}:{int(track.length%60):02d}",
-                    inline=True
-                )
-                embed.add_field(
-                    name="대기열 위치",
-                    value=f"{len(vc.queue)}번째",
-                    inline=True
-                )
-            else:
-                # 바로 재생
-                await vc.play(track)
-                embed = discord.Embed(
-                    title="🎵 재생 시작",
-                    color=discord.Color.green()
-                )
-                embed.add_field(
-                    name="제목",
-                    value=f"[{track.title}]({track.uri})",
-                    inline=False
-                )
-                embed.add_field(
-                    name="길이",
-                    value=f"{int(track.length//60)}:{int(track.length%60):02d}",
-                    inline=True
-                )
-                embed.add_field(
-                    name="채널",
-                    value=interaction.user.voice.channel.name,
-                    inline=True
-                )
+            # 음악 재생
+            await vc.play(track)
+            
+            # 재생 정보 임베드 생성
+            embed = discord.Embed(
+                title="🎵 재생 시작",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="제목",
+                value=f"[{track.title}]({track.uri})",
+                inline=False
+            )
+            embed.add_field(
+                name="길이",
+                value=f"{int(track.length//60)}:{int(track.length%60):02d}",
+                inline=True
+            )
+            embed.add_field(
+                name="채널",
+                value=interaction.user.voice.channel.name,
+                inline=True
+            )
             
             await interaction.followup.send(embed=embed)
             
@@ -120,7 +98,7 @@ def setup_music_commands(bot):
             await interaction.response.send_message("❌ 봇과 같은 음성 채널에 있어야 합니다!", ephemeral=True)
             return
         
-        vc: CustomPlayer = interaction.guild.voice_client
+        vc: wavelink.Player = interaction.guild.voice_client
         await vc.stop()
         await vc.disconnect()
         
@@ -148,7 +126,7 @@ def setup_music_commands(bot):
             await interaction.response.send_message("❌ 봇과 같은 음성 채널에 있어야 합니다!", ephemeral=True)
             return
         
-        vc: CustomPlayer = interaction.guild.voice_client
+        vc: wavelink.Player = interaction.guild.voice_client
         
         if vc.is_paused():
             await vc.resume()
@@ -184,7 +162,7 @@ def setup_music_commands(bot):
             await interaction.response.send_message("❌ 봇과 같은 음성 채널에 있어야 합니다!", ephemeral=True)
             return
         
-        vc: CustomPlayer = interaction.guild.voice_client
+        vc: wavelink.Player = interaction.guild.voice_client
         
         if not vc.is_paused():
             await interaction.response.send_message("❌ 음악이 이미 재생 중입니다.", ephemeral=True)
@@ -215,7 +193,7 @@ def setup_music_commands(bot):
             await interaction.response.send_message("❌ 봇과 같은 음성 채널에 있어야 합니다!", ephemeral=True)
             return
         
-        vc: CustomPlayer = interaction.guild.voice_client
+        vc: wavelink.Player = interaction.guild.voice_client
         
         if not vc.is_playing():
             await interaction.response.send_message("❌ 현재 재생 중인 음악이 없습니다.", ephemeral=True)
@@ -234,48 +212,4 @@ def setup_music_commands(bot):
         )
         await interaction.response.send_message(embed=embed)
     
-    @bot.tree.command(name="대기열", description="재생 대기열을 확인합니다")
-    async def queue(interaction: discord.Interaction):
-        # 음성 채널 연결 확인
-        if not interaction.guild.voice_client:
-            await interaction.response.send_message("❌ 재생 중인 음악이 없습니다.", ephemeral=True)
-            return
-        
-        vc: CustomPlayer = interaction.guild.voice_client
-        
-        if not vc.current and not vc.queue:
-            await interaction.response.send_message("❌ 대기열이 비어있습니다.", ephemeral=True)
-            return
-        
-        # 대기열 임베드 생성
-        embed = discord.Embed(
-            title="🎵 재생 대기열",
-            color=discord.Color.blue()
-        )
-        
-        # 현재 재생 중인 곡
-        if vc.current:
-            embed.add_field(
-                name="현재 재생 중",
-                value=f"[{vc.current.title}]({vc.current.uri})",
-                inline=False
-            )
-        
-        # 대기열 목록
-        if vc.queue:
-            queue_list = []
-            for i, track in enumerate(vc.queue, 1):
-                queue_list.append(f"{i}. [{track.title}]({track.uri})")
-            
-            embed.add_field(
-                name="대기열",
-                value="\n".join(queue_list[:10]),  # 최대 10개까지만 표시
-                inline=False
-            )
-            
-            if len(vc.queue) > 10:
-                embed.set_footer(text=f"외 {len(vc.queue) - 10}곡")
-        
-        await interaction.response.send_message(embed=embed)
-
-    return ["재생", "정지", "일시정지", "재개", "건너뛰기", "대기열"]  # 등록된 명령어 이름 목록 반환 
+    return ["재생", "정지", "일시정지", "재개", "건너뛰기"]  # 등록된 명령어 이름 목록 반환 

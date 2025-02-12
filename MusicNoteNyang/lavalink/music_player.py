@@ -1,4 +1,3 @@
-# lavalink/music_player.py
 import wavelink
 import discord
 
@@ -21,7 +20,7 @@ class MusicPlayer:
             player = await voice_channel.connect(cls=wavelink.Player)
             
             # 음악 검색
-            search = await wavelink.Track.search(query)
+            search = await wavelink.YouTubeTrack.search(query)
             if not search:
                 await interaction.response.send_message("검색 결과를 찾을 수 없습니다.")
                 return
@@ -39,4 +38,4 @@ class MusicPlayer:
             await interaction.response.send_message(embed=embed)
             
         except Exception as e:
-            await interaction.response.send_message(f"음악 재생 중 오류가 발생했습니다: {str(e)}")
+            await interaction.response.send_message(f"음악 재생 중 오류가 발생했습니다: {str(e)}") 
