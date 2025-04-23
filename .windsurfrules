@@ -7,6 +7,8 @@ I’m developing a Discord music bot using **Node.js with TypeScript**. Please i
 5. Include queue functionality, now-playing feedback, and response messages after commands.
 6. The /skip command should be usable by either a bot admin or the user who requested the current track.
 7. Implement automatic reconnection if the bot is disconnected from a voice channel.
+8. LavaLink server version is 4.0.8. and Lavalink client is 2.5.0. Feel free to search or ask me if you have any questions during development.
+9. I want to make it available for all servers, not just a specific server.
 
 All code must be written in **TypeScript for Node.js**, using either ESModules or CommonJS as appropriate.
 

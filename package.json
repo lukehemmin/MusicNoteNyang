@@ -20,15 +20,15 @@
   },
   "homepage": "https://github.com/lukehemmin/MusicNoteNyang#readme",
   "dependencies": {
-    "discord.js": "^14.14.1",
     "@discordjs/rest": "^2.3.0",
-    "@discordjs/voice": "^0.16.0",
-    "lavalink-client": "^4.6.2",
-    "yt-dlp-exec": "^2.0.0",
-    "dotenv": "^16.4.5"
+    "@discordjs/voice": "^0.16.1",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.5.0",
+    "lavalink-client": "^2.5.0",
+    "yt-dlp-exec": "^1.0.2"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
