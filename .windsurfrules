@@ -1,0 +1,13 @@
+I’m developing a Discord music bot using **Node.js with TypeScript**. Please implement the full bot according to the following rules, and make sure all code is written in TypeScript.
+
+1. All commands must be implemented as slash (/) commands (e.g., /play, /pause, /resume, /stop, /skip).
+2. The /play command should support both direct URLs and keyword searches. If a keyword is provided, search YouTube and play the most relevant result.
+3. Music must be played in the voice channel the user is currently in.
+4. Use YouTube as the source and implement streaming using yt-dlp or lavalink.
+5. Include queue functionality, now-playing feedback, and response messages after commands.
+6. The /skip command should be usable by either a bot admin or the user who requested the current track.
+7. Implement automatic reconnection if the bot is disconnected from a voice channel.
+
+All code must be written in **TypeScript for Node.js**, using either ESModules or CommonJS as appropriate.
+
+👉 Please make full use of available tools and libraries (like `discord.js`, `@discordjs/rest`, `yt-dlp`, `lavalink-client`, etc.) to help with command registration, playback, and testing. If an existing library can simplify or improve the functionality, feel free to use it.

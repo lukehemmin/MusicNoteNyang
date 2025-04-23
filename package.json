@@ -1,0 +1,34 @@
+{
+  "name": "musicnotenyang",
+  "version": "1.0.0",
+  "description": "Discord_Music_bot",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lukehemmin/MusicNoteNyang.git"
+  },
+  "author": "[Lukehemmin] (https://github.com/lukehemmin)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/lukehemmin/MusicNoteNyang/issues"
+  },
+  "homepage": "https://github.com/lukehemmin/MusicNoteNyang#readme",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "@discordjs/rest": "^2.3.0",
+    "@discordjs/voice": "^0.16.0",
+    "lavalink-client": "^4.6.2",
+    "yt-dlp-exec": "^2.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "ts-node": "^10.9.2"
+  }
+}
