@@ -2,3 +2,4 @@
 node_modules
 dist
 yt-dlp/yt-dlp.exe
+ffmpeg/bin/*.*
