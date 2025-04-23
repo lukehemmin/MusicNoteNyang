@@ -153,31 +153,47 @@ async function searchTracks(query: string): Promise<any[]> {
     return data.tracks;
 }
 
+// 전역 예외 처리: 서버 다운 방지
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[unhandledRejection] 예기치 않은 오류:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException] 예기치 않은 오류:', err);
+});
+
 client.on('interactionCreate', async (interaction: Interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    const command = interaction.commandName;
-    switch (command) {
-        case 'play':
-            await handlePlay(interaction as CommandInteraction);
-            break;
-        case 'pause':
-            await handlePause(interaction as CommandInteraction, client);
-            break;
-        case 'resume':
-            await handleResume(interaction as CommandInteraction, client);
-            break;
-        case 'skip':
-            await handleSkip(interaction as CommandInteraction, client);
-            break;
-        case 'stop':
-            await handleStop(interaction as CommandInteraction, client);
-            break;
-        case 'queue':
-            await handleQueue(interaction as CommandInteraction);
-            break;
-        case 'nowplaying':
-            await handleNowPlaying(interaction as CommandInteraction);
-            break;
+    try {
+        if (!interaction.isChatInputCommand()) return;
+        const command = interaction.commandName;
+        switch (command) {
+            case 'play':
+                await handlePlay(interaction as CommandInteraction);
+                break;
+            case 'pause':
+                await handlePause(interaction as CommandInteraction, client);
+                break;
+            case 'resume':
+                await handleResume(interaction as CommandInteraction, client);
+                break;
+            case 'skip':
+                await handleSkip(interaction as CommandInteraction, client);
+                break;
+            case 'stop':
+                await handleStop(interaction as CommandInteraction, client);
+                break;
+            case 'queue':
+                await handleQueue(interaction as CommandInteraction);
+                break;
+            case 'nowplaying':
+                await handleNowPlaying(interaction as CommandInteraction);
+                break;
+        }
+    } catch (error) {
+        console.error('[interactionCreate] 핸들러 오류:', error);
+        // 응답이 가능한 경우만 reply 시도
+        if ('isRepliable' in interaction && (interaction as any).isRepliable() && !(interaction as any).replied) {
+            try { await (interaction as any).reply('명령 처리 중 오류가 발생했습니다.'); } catch {}
+        }
     }
 });
 
@@ -217,6 +233,68 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         setTimeout(() => {
             player.connect();
         }, 1000);
+    }
+});
+
+// Lavalink 연결 상태 및 재연결 로직
+let lavalinkReconnectTimeout: NodeJS.Timeout | null = null;
+let lavalinkReconnectDelay = 10; // 재연결 시도 간격(초)
+
+client.lavalink.on('connect', (node: any) => {
+    if (lavalinkReconnectTimeout) {
+        clearTimeout(lavalinkReconnectTimeout);
+        lavalinkReconnectTimeout = null;
+    }
+    lavalinkReconnectDelay = 10;
+    console.log(`[Lavalink] 노드 연결 완료: ${node.options.host}:${node.options.port}`);
+});
+
+client.lavalink.on('disconnect', (node: any, reason: any) => {
+    console.warn(`[Lavalink] 노드 연결 해제: ${node.options.host}:${node.options.port} (사유: ${reason})`);
+    attemptLavalinkReconnect(node);
+});
+
+client.lavalink.on('error', (node: any, error: any) => {
+    console.error(`[Lavalink] 연결 오류: ${node.options.host}:${node.options.port}`, error);
+    attemptLavalinkReconnect(node);
+});
+
+function attemptLavalinkReconnect(node: any) {
+    if (lavalinkReconnectTimeout) return; // 이미 재연결 대기 중이면 중복 시도 방지
+    lavalinkReconnectTimeout = setTimeout(async () => {
+        console.log(`[Lavalink] ${lavalinkReconnectDelay}초 후 재연결 시도 중...`);
+        try {
+            await node.connect();
+            console.log('[Lavalink] 재연결 성공!');
+            lavalinkReconnectDelay = 10;
+        } catch (e) {
+            console.error('[Lavalink] 재연결 실패:', e);
+            lavalinkReconnectDelay = Math.min(lavalinkReconnectDelay * 2, 120); // 최대 2분까지 증가
+            attemptLavalinkReconnect(node); // 재귀 재시도
+        } finally {
+            lavalinkReconnectTimeout = null;
+        }
+    }, lavalinkReconnectDelay * 1000);
+}
+
+// 안전한 종료: Ctrl+C(SIGINT) 시 모든 연결 해제 및 프로세스 종료
+process.on('SIGINT', async () => {
+    try {
+        console.log('\n[서버 종료] 안전하게 종료 중...');
+        // Lavalink 연결 해제
+        if (client.lavalink) {
+            for (const player of client.lavalink.players.values()) {
+                player.destroy();
+            }
+            await new Promise(res => setTimeout(res, 500)); // 잠깐 대기
+        }
+        // Discord 클라이언트 종료
+        await client.destroy();
+        console.log('[서버 종료] 모든 연결 해제 완료.');
+    } catch (e) {
+        console.error('[서버 종료] 에러:', e);
+    } finally {
+        process.exit(0);
     }
 });
 
