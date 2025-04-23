@@ -39,6 +39,13 @@ export default async function handlePlay(interaction: CommandInteraction) {
         await interaction.editReply('yt-dlp로도 오디오 스트림을 추출할 수 없습니다.');
         return;
     }
+    // === ffmpeg 경로를 환경변수에 동적으로 지정 ===
+    const { getCustomFfmpegPath } = await import('../utils/ffmpeg-path');
+    const customFfmpeg = getCustomFfmpegPath();
+    if (customFfmpeg) {
+        process.env.FFMPEG_PATH = customFfmpeg;
+        process.env.FFMPEG_BIN = customFfmpeg;
+    }
     // Discord.js Voice로 직접 오디오 송출(간단 예시, 실제 구현은 별도 utils 필요)
     // 추후: utils/voice.ts 등으로 분리 권장
     const { joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, AudioPlayerStatus, getVoiceConnection } = await import('@discordjs/voice');
@@ -48,7 +55,13 @@ export default async function handlePlay(interaction: CommandInteraction) {
         adapterCreator: voiceChannel.guild.voiceAdapterCreator as any
     });
     const player = createAudioPlayer();
-    const resource = createAudioResource(streamUrl);
+    const resource = createAudioResource(streamUrl, {
+        inlineVolume: true,
+        inputType: undefined,
+        metadata: {},
+        // ffmpeg 경로 지정 (prism-media가 환경변수 사용)
+        // spawnOptions: { env: { ...process.env, FFMPEG_PATH: customFfmpeg } }
+    });
     player.play(resource);
     connection.subscribe(player);
     player.on(AudioPlayerStatus.Idle, () => {
