@@ -1,3 +1,16 @@
+import * as path from 'path';
+const rootDir = path.resolve(__dirname, '../..');
+const ffmpegBin = path.join(rootDir, 'ffmpeg', 'bin');
+const ffmpegExe = process.platform === 'win32'
+  ? path.join(ffmpegBin, 'ffmpeg.exe')
+  : path.join(ffmpegBin, 'ffmpeg');
+const sep = process.platform === 'win32' ? ';' : ':';
+if (!process.env.PATH?.startsWith(ffmpegBin)) {
+  process.env.PATH = `${ffmpegBin}${sep}${process.env.PATH}`;
+}
+process.env.FFMPEG_PATH = ffmpegExe;
+process.env.FFMPEG_BIN = ffmpegExe;
+
 import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Interaction, CommandInteraction, GuildMember, PermissionsBitField } from 'discord.js';
 import { config } from 'dotenv';
 import { LavalinkManager } from 'lavalink-client';
