@@ -1,28 +1,48 @@
-import YTDlpWrap from 'yt-dlp-wrap';
+import { spawn } from 'child_process';
 
-const ytdlpWrap = new YTDlpWrap('C:/Users/Administrator/Documents/GitHub/MusicNoteNyang/yt-dlp/yt-dlp.exe');
+function isUrl(str: string): boolean {
+    try {
+        new URL(str);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
-// YTDlpWrap의 타입 정의상 stdout 이벤트는 지원하지 않지만, 실제로는 Node.js EventEmitter로 동작하므로 as any로 우회
 export async function getYtDlpAudioUrl(query: string): Promise<string | null> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         let url = '';
-        const process = ytdlpWrap.exec([
+        let errorLog = '';
+        const args = [
             '-f', 'bestaudio',
             '--no-playlist',
-            '--default-search', 'ytsearch',
-            '--skip-download',
-            '--print', 'url',
-            query
-        ]);
-        (process as any).on('stdout', (data: Buffer) => {
+            '--get-url'
+        ];
+        if (!isUrl(query)) {
+            args.push('--default-search', 'ytsearch');
+        }
+        args.push(query);
+        console.log(`[yt-dlp] 직접 실행: yt-dlp ${args.join(' ')}`);
+        const proc = spawn('yt-dlp', args);
+        proc.stdout.on('data', (data: Buffer) => {
             url += data.toString();
         });
-        process.on('close', (code: number | null) => {
-            if (code === 0 && url.trim().length > 0) {
-                resolve(url.trim().split('/n')[0]);
+        proc.stderr.on('data', (data: Buffer) => {
+            errorLog += data.toString();
+        });
+        proc.on('close', (code: number) => {
+            console.log(`[yt-dlp] 종료 코드: ${code}`);
+            if (url.trim().length > 0) {
+                console.log(`[yt-dlp] 추출된 URL: ${url.trim().split('\n')[0]}`);
+                resolve(url.trim().split('\n')[0]);
             } else {
+                console.error(`[yt-dlp] 오디오 URL 추출 실패. query: ${query}, code: ${code}, stderr: ${errorLog}`);
                 resolve(null);
             }
+        });
+        proc.on('error', (err: Error) => {
+            console.error(`[yt-dlp] 오류 발생: ${err.message}`);
+            reject(err);
         });
     });
 }
