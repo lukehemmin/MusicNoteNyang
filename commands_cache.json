@@ -63,5 +63,18 @@
     "name": "음악채널지정",
     "description": "음악 상태 메시지를 보낼 텍스트 채널을 지정합니다.",
     "type": 1
+  },
+  {
+    "options": [
+      {
+        "type": 4,
+        "name": "초",
+        "description": "이동할 시간(초)",
+        "required": true
+      }
+    ],
+    "name": "seek",
+    "description": "재생 중인 음악의 시간을 이동합니다.",
+    "type": 1
   }
 ]

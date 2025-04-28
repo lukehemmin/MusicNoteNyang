@@ -214,7 +214,7 @@ export class MusicUtils {
             await saveMusicHistory({
                 guildId,
                 userId: queue.requestedBy,
-                ytId: query.includes('youtube.com') ? new URL(query).searchParams.get('v') || query : query,
+                ytId: MusicUtils.extractYouTubeId(query),
                 videoUrl: query,
                 startTime: new Date(),
                 expireTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7), // 7 days
@@ -292,6 +292,25 @@ export class MusicUtils {
         const m = Math.floor(sec / 60);
         const s = Math.floor(sec % 60);
         return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    // YouTube ID 추출 유틸리티 함수
+    public static extractYouTubeId(url: string): string {
+        try {
+            if (url.includes('youtube.com')) {
+                // youtube.com 형식
+                return new URL(url).searchParams.get('v') || '';
+            } else if (url.includes('youtu.be')) {
+                // youtu.be 형식
+                const pathname = new URL(url).pathname;
+                return pathname.substring(1).split('?')[0]; // /gHxxU-Sot1Y?t=1326 -> gHxxU-Sot1Y
+            }
+            return url.length <= 32 ? url : url.substring(0, 32); // ID가 아니라면 잘라서 저장
+        } catch (e) {
+            console.error('YouTube ID 추출 실패:', e);
+            // 에러가 발생하면 URL을 최대 32자로 잘라 반환
+            return url.length <= 32 ? url : url.substring(0, 32);
+        }
     }
 }
 

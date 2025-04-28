@@ -650,7 +650,32 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
           try {
             // 유튜브 URL을 직접 사용하지 않고 yt-dlp를 통해 실제 오디오 스트림 URL 가져오기
             const { getYtDlpAudioUrl } = await import('./utils/yt-dlp');
-            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl, resume.seekTime);
+            
+            // URL에서 타임스탬프 파라미터(t=)가 있는지 확인하고 추출
+            let timeParam = 0;
+            try {
+              const urlObj = new URL(resume.trackUrl);
+              // youtube.com 또는 youtu.be 형식 처리
+              if (urlObj.searchParams.has('t')) {
+                timeParam = parseInt(urlObj.searchParams.get('t') || '0');
+                console.log(`[resume] ${guild.name}: URL에 포함된 시작 위치: ${timeParam}초`);
+              }
+            } catch (err) {
+              console.error(`[resume] ${guild.name}: URL 파싱 오류:`, err);
+            }
+            
+            // 재생 위치 결정: 마지막 듣던 위치(resume.seekTime)가 있으면 그것을 사용, 없으면 URL 타임스탬프 사용
+            const finalSeekTime = resume.seekTime > 0 ? resume.seekTime : timeParam;
+            
+            if (resume.seekTime > 0) {
+              console.log(`[resume] ${guild.name}: 마지막 듣던 위치인 ${resume.seekTime}초부터 재생합니다.`);
+            } else if (timeParam > 0) {
+              console.log(`[resume] ${guild.name}: URL에 지정된 위치인 ${timeParam}초부터 재생합니다.`);
+            } else {
+              console.log(`[resume] ${guild.name}: 처음부터 재생합니다.`);
+            }
+            
+            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl, finalSeekTime);
             
             if (!audioStreamUrl) {
               console.error(`[resume] ${guild.name}: 오디오 스트림 URL 가져오기 실패`);
@@ -658,8 +683,6 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
               connection.destroy();
               continue;
             }
-            
-            console.log(`[resume] ${guild.name}: 이전 재생 위치 ${resume.seekTime}초부터 재생 시작`);
             
             const resource = createAudioResource(audioStreamUrl, { 
               inlineVolume: true
@@ -735,6 +758,16 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
       return import('node-fetch').then(mod => mod.default.apply(null, arguments as any));
     };
   }
+
+  // 콘솔에서 'restart' 또는 're' 명령어 입력 시 재시작 지원
+  process.stdin.on('data', (data) => {
+    const input = data.toString().trim().toLowerCase();
+    if (input === 'restart' || input === 're') {
+      console.log('\n[커스텀 명령어] 재시작 명령을 감지했습니다. 프로세스를 재시작합니다...');
+      // nodemon에서 인식하는 'rs' 명령 시뮬레이션
+      process.stdout.write('rs\n');
+    }
+  });
 
   // music_history 만료 기록 주기적 삭제
   setInterval(async () => {
