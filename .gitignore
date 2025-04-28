@@ -3,3 +3,4 @@ node_modules
 dist
 yt-dlp/yt-dlp.exe
 ffmpeg/bin/*.*
+.cache/yt-dlp/
