@@ -41,7 +41,7 @@ export interface PendingProcess {
 
 export class MusicUtils {
     private static queues: Map<string, QueueItem[]> = new Map();
-    private static nowPlaying: Map<string, QueueItem | null> = new Map();
+    public static nowPlaying: Map<string, QueueItem | null> = new Map();
     private static pendingProcesses: Map<string, PendingProcess> = new Map();
     private static queueLocks: Map<string, Promise<void>> = new Map();
 
@@ -179,7 +179,7 @@ export class MusicUtils {
             connection.subscribe(player);
             
             // 오디오 리소스 생성
-            const resource = createAudioResource(audioUrl);
+            const resource = createAudioResource(audioUrl, { inlineVolume: true });
             
             // 볼륨 설정 (선택적)
             const volume = await getGuildVolume(guildId);
@@ -222,11 +222,11 @@ export class MusicUtils {
                 lastSeek: 0
             });
             
-            // 재생 시간 주기적으로 저장 (30초마다)
+            // 재생 시간 주기적으로 저장 (5초마다)
             let currentPlayTime = 0;
             const playTimeUpdater = setInterval(async () => {
                 if (player.state.status === AudioPlayerStatus.Playing) {
-                    currentPlayTime += 30; // 30초씩 증가
+                    currentPlayTime += 5; // 5초씩 증가
                     
                     // DB에 현재 재생 시간 저장
                     await saveResumeState({
@@ -246,7 +246,7 @@ export class MusicUtils {
                         np.seek = currentPlayTime * 1000; // ms 단위로 변환
                     }
                 }
-            }, 30000); // 30초마다 실행
+            }, 5000); // 5초마다 실행
             
             // 재생 완료 이벤트 처리
             player.on(AudioPlayerStatus.Idle, async () => {

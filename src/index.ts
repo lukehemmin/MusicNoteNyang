@@ -527,7 +527,9 @@ async function gracefulShutdown() {
         }, 5000);
         
         // === 재생 상태 최신화 ===
-        const { nowPlaying, abortPendingProcess } = require('./utils/music');
+        const { MusicUtils } = require('./utils/music');
+        const nowPlaying = (MusicUtils as any).nowPlaying;
+        const abortPendingProcess = MusicUtils.abortPendingProcess;
         // 중단된 모든 프로세스 kill
         for (const guildId of nowPlaying.keys()) {
             abortPendingProcess(guildId);
@@ -715,8 +717,8 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
             }
             
             // nowPlaying 맵에 현재 재생 정보 설정 - seek 명령어에서 사용
-            const { MusicUtils } = await import('./utils/music');
-            MusicUtils['nowPlaying'].set(guildId, {
+            const { MusicUtils } = require('./utils/music');
+            (MusicUtils as any).nowPlaying.set(guildId, {
                 track: { 
                     title: resume.title || '제목 없음', 
                     query: resume.trackUrl 
@@ -732,14 +734,14 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
               console.error(`[resume] ${guild.name} 플레이어 오류:`, error);
               await clearResumeState(guildId);
               // 연결은 유지
-              MusicUtils['nowPlaying'].set(guildId, null);
+              (MusicUtils as any).nowPlaying.set(guildId, null);
             });
             
             player.on(AudioPlayerStatus.Idle, async () => {
               console.log(`[resume] ${guild.name}: 재생 완료`);
               await clearResumeState(guildId);
               // 음성 연결 유지
-              MusicUtils['nowPlaying'].set(guildId, null);
+              (MusicUtils as any).nowPlaying.set(guildId, null);
             });
             
             // 연결 에러 처리
@@ -773,7 +775,7 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
                     });
                     
                     // nowPlaying 정보도 업데이트
-                    const np = MusicUtils['nowPlaying'].get(guildId);
+                    const np = (MusicUtils as any).nowPlaying.get(guildId);
                     if (np) {
                         np.seek = currentPlayTime * 1000; // ms 단위로 변환
                     }

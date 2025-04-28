@@ -146,14 +146,25 @@ export default async function handleSeek(interaction: CommandInteraction, client
                     return;
                 }
                 
-                // 이제 새 URL이 준비되었으므로 기존 플레이어 일시 중지
+                // 이제 새 URL이 준비되었으므로 기존 플레이어 중지
                 if (nowPlaying.audioPlayer) {
-                    nowPlaying.audioPlayer.pause();
+                    nowPlaying.audioPlayer.stop();
                 }
                 
                 // 새 오디오 리소스 생성 (ffmpeg로 seek 적용)
                 const ffmpegPath = process.env.FFMPEG_PATH || getCustomFfmpegPath() || 'ffmpeg';
-                const ffmpegArgs = ['-i', audioUrl, '-ss', seekTime.toString(), '-analyzeduration', '0', '-loglevel', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'];
+                const ffmpegArgs = [
+                    '-reconnect_streamed', '1',
+                    '-reconnect_at_eof', '1',
+                    '-ss', seekTime.toString(),
+                    '-i', audioUrl,
+                    '-analyzeduration', '0',
+                    '-loglevel', '0',
+                    '-f', 's16le',
+                    '-ar', '48000',
+                    '-ac', '2',
+                    'pipe:1'
+                ];
                 const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
                 const resource = createAudioResource(ffmpegProc.stdout, { inputType: StreamType.Raw, inlineVolume: true });
                 
