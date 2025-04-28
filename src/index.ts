@@ -528,26 +528,24 @@ async function gracefulShutdown() {
         
         // === 재생 상태 최신화 ===
         const { nowPlaying, abortPendingProcess } = require('./utils/music');
-        if (nowPlaying && typeof nowPlaying.entries === 'function') {
-          // 모든 길드에 대한 대기 중인 프로세스 중단
-          for (const guildId of nowPlaying.keys()) {
+        // 중단된 모든 프로세스 kill
+        for (const guildId of nowPlaying.keys()) {
             abortPendingProcess(guildId);
-          }
-          
-          for (const [guildId, np] of nowPlaying.entries()) {
-            if (np && np.audioResource) {
-              await saveResumeState({
-                guildId,
-                voiceChannelId: np.audioResource.metadata?.channelId || '',
-                textChannelId: '',
-                trackUrl: np.track?.query || np.track?.url || '',
-                title: np.track?.title || '',
-                requestedBy: np.requestedBy,
-                seekTime: Math.floor(np.audioResource.playbackDuration / 1000),
-                startedAt: new Date()
-              });
+        }
+        // 저장된 seek ms를 기준으로 ResumeState 업데이트
+        for (const [guildId, np] of nowPlaying.entries()) {
+            if (np && typeof np.seek === 'number') {
+                await saveResumeState({
+                    guildId,
+                    voiceChannelId: np.audioResource?.metadata?.channelId || '',
+                    textChannelId: '',
+                    trackUrl: np.track?.query || np.track?.url || '',
+                    title: np.track?.title || '',
+                    requestedBy: np.requestedBy,
+                    seekTime: Math.floor(np.seek / 1000),
+                    startedAt: new Date()
+                });
             }
-          }
         }
         // Lavalink 연결 해제
         if (client.lavalink) {
@@ -648,7 +646,7 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
           const player = createAudioPlayer();
           
           try {
-            // 유튜브 URL을 직접 사용하지 않고 yt-dlp를 통해 실제 오디오 스트림 URL 가져오기
+            // 원본 오디오 스트림 URL을 가져오고, ffmpeg로 seek 처리
             const { getYtDlpAudioUrl } = await import('./utils/yt-dlp');
             
             // URL에서 타임스탬프 파라미터(t=)가 있는지 확인하고 추출
@@ -675,19 +673,31 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
               console.log(`[resume] ${guild.name}: 처음부터 재생합니다.`);
             }
             
-            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl, finalSeekTime);
+            // YT-DLP로 기본 오디오 스트림 URL만 가져옴
+            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl, 0);
             
             if (!audioStreamUrl) {
               console.error(`[resume] ${guild.name}: 오디오 스트림 URL 가져오기 실패`);
               await clearResumeState(guildId);
-              connection.destroy();
+              // 음성 연결 유지
               continue;
             }
             
-            // 오디오 리소스 생성 (ffmpeg로 seek 적용)
+            // ffmpeg로 seek 처리 및 raw PCM 출력 (reconnect 옵션 포함)
             const ffmpegPath = process.env.FFMPEG_PATH || getCustomFfmpegPath() || 'ffmpeg';
-            // ffmpeg: seek 후 raw PCM 출력
-            const ffmpegArgs = ['-ss', finalSeekTime.toString(), '-i', audioStreamUrl, '-analyzeduration', '0', '-loglevel', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'];
+            const ffmpegArgs = [
+                '-reconnect', '1',
+                '-reconnect_streamed', '1',
+                '-reconnect_at_eof', '1',
+                '-ss', finalSeekTime.toString(),
+                '-i', audioStreamUrl,
+                '-analyzeduration', '0',
+                '-loglevel', '0',
+                '-f', 's16le',
+                '-ar', '48000',
+                '-ac', '2',
+                'pipe:1'
+            ];
             const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
             const resource = createAudioResource(ffmpegProc.stdout, { inputType: StreamType.Raw, inlineVolume: true });
             
@@ -721,21 +731,21 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
             player.on('error', async (error) => {
               console.error(`[resume] ${guild.name} 플레이어 오류:`, error);
               await clearResumeState(guildId);
-              connection.destroy();
+              // 연결은 유지
               MusicUtils['nowPlaying'].set(guildId, null);
             });
             
             player.on(AudioPlayerStatus.Idle, async () => {
-              console.log(`[resume] ${guild.name}: 재생 완료, 연결 종료`);
+              console.log(`[resume] ${guild.name}: 재생 완료`);
               await clearResumeState(guildId);
-              connection.destroy();
+              // 음성 연결 유지
               MusicUtils['nowPlaying'].set(guildId, null);
             });
             
             // 연결 에러 처리
             connection.on('error', (error) => {
               console.error(`[resume] ${guild.name} 연결 오류:`, error);
-              connection.destroy();
+              // 음성 연결 유지
             });
             
             // 연결 이벤트 처리
@@ -786,7 +796,7 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
             console.log(`[resume] ${guild.name}에서 마지막 곡 자동 재생 시작`);
           } catch (resourceError) {
             console.error(`[resume] ${guild.name} 리소스 생성/재생 오류:`, resourceError);
-            connection.destroy();
+            // 음성 연결 유지
             await clearResumeState(guildId);
           }
         } catch (e) {

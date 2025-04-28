@@ -153,7 +153,7 @@ export default async function handleSeek(interaction: CommandInteraction, client
                 
                 // 새 오디오 리소스 생성 (ffmpeg로 seek 적용)
                 const ffmpegPath = process.env.FFMPEG_PATH || getCustomFfmpegPath() || 'ffmpeg';
-                const ffmpegArgs = ['-ss', seekTime.toString(), '-i', audioUrl, '-analyzeduration', '0', '-loglevel', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'];
+                const ffmpegArgs = ['-i', audioUrl, '-ss', seekTime.toString(), '-analyzeduration', '0', '-loglevel', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'];
                 const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
                 const resource = createAudioResource(ffmpegProc.stdout, { inputType: StreamType.Raw, inlineVolume: true });
                 
