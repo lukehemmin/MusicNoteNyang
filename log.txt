@@ -1,0 +1,19 @@
+
+> musicnotenyang@1.0.0 start
+> node dist/index.js
+
+[디버깅] binDir: /root/ffmpeg/bin
+[디버깅] ffmpegExe: /root/ffmpeg/bin/ffmpeg
+[디버깅] fs.existsSync(ffmpegExe): false
+[디버깅] process.env.PATH: /root/MusicNoteNyang/node_modules/.bin:/root/node_modules/.bin:/node_modules/.bin:/root/.nvm/versions/node/v22.15.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/root/.cursor-server/cli/servers/Stable-fd861c8a80c0f9e4e35294b1915ee8a7b29ae850/server/bin/remote-cli:/root/.nvm/versions/node/v22.15.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+[디버깅] process.env.FFMPEG_PATH: undefined
+[디버깅] getFfmpegPath(): /usr/bin/ffmpeg
+[디버깅] checkDependency 실행: yt-dlp --version
+[환경체크] yt-dlp 버전 정보 확인 실패. 출력:
+2025.03.31
+
+[디버깅] checkDependency 실행: /usr/bin/ffmpeg --version
+[경고] /usr/bin/ffmpeg 실행 시 -version 옵션 관련 경고가 발생했으나, ffmpeg는 정상적으로 설치되어 있습니다.
+MariaDB 연결 및 테이블 자동 생성 완료!
+음표냥#5640 봇이 준비되었습니다.
+[명령어 캐시] 명령어가 이미 최신 상태입니다. Discord API 호출을 생략합니다.

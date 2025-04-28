@@ -1,16 +1,65 @@
+import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 const rootDir = path.resolve(__dirname, '../..');
-const ffmpegBin = path.join(rootDir, 'ffmpeg', 'bin');
-const ffmpegExe = process.platform === 'win32'
-  ? path.join(ffmpegBin, 'ffmpeg.exe')
-  : path.join(ffmpegBin, 'ffmpeg');
+const binDir = path.join(rootDir, 'ffmpeg', 'bin');
+const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+const ffmpegExe = path.join(binDir, exeName);
 const sep = process.platform === 'win32' ? ';' : ':';
-if (!process.env.PATH?.startsWith(ffmpegBin)) {
-  process.env.PATH = `${ffmpegBin}${sep}${process.env.PATH}`;
+
+// ffmpeg 경로 자동 탐색 및 환경변수 설정 보완 (utils/ffmpeg-path.ts 활용)
+import { getCustomFfmpegPath } from './utils/ffmpeg-path';
+
+const FFMPEG_PATH = getCustomFfmpegPath();
+
+function getFfmpegPath() {
+  return process.env.FFMPEG_PATH || FFMPEG_PATH;
 }
-// ffmpeg 환경변수 강제 지정 부분 삭제 (시스템 PATH 자동 인식)
-// process.env.FFMPEG_PATH = ffmpegExe;
-// process.env.FFMPEG_BIN = ffmpegExe;
+
+// 디버깅: ffmpeg 경로와 환경변수 상태 출력
+console.log('[디버깅] binDir:', binDir);
+console.log('[디버깅] ffmpegExe:', ffmpegExe);
+console.log('[디버깅] fs.existsSync(ffmpegExe):', fs.existsSync(ffmpegExe));
+console.log('[디버깅] process.env.PATH:', process.env.PATH);
+console.log('[디버깅] process.env.FFMPEG_PATH:', process.env.FFMPEG_PATH);
+console.log('[디버깅] getFfmpegPath():', getFfmpegPath());
+
+const detectedFfmpeg = getCustomFfmpegPath();
+if (detectedFfmpeg) {
+  process.env.FFMPEG_PATH = detectedFfmpeg;
+  process.env.FFMPEG_BIN = detectedFfmpeg;
+}
+
+function checkDependency(cmd: string, name: string) {
+  const envKey = `${name.toUpperCase()}_PATH`;
+  const execCmd = (name === 'ffmpeg') ? getFfmpegPath() : (process.env[envKey] || cmd);
+  try {
+    console.log(`[디버깅] checkDependency 실행: ${execCmd} --version`);
+    const env = { ...process.env, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' };
+    const result = execSync(`${execCmd} --version`, { stdio: 'pipe', env });
+    const output = result.toString();
+    if (output.includes('version')) {
+      console.log(`[환경체크] ${name} 정상 동작 확인됨.`);
+    } else {
+      console.warn(`[환경체크] ${name} 버전 정보 확인 실패. 출력:\n${output}`);
+    }
+  } catch (e: any) {
+    const stderr = e.stderr?.toString() || '';
+    if (stderr.includes("Unrecognized option '-version'")) {
+      console.warn(`[경고] ${execCmd} 실행 시 -version 옵션 관련 경고가 발생했으나, ffmpeg는 정상적으로 설치되어 있습니다.`);
+    } else {
+      console.error(`[환경체크] ${name}가 설치되어 있지 않습니다. 설치 후 다시 시도하세요.`);
+      console.error('[디버깅] execSync 에러:', e);
+      process.exit(1);
+    }
+  }
+}
+
+// 봇 시작 시 의존성 체크
+checkDependency('yt-dlp', 'yt-dlp');
+checkDependency('ffmpeg', 'ffmpeg');
+
+import { deleteExpiredHistories } from './db/musicHistory.repository';
 
 import { config } from 'dotenv';
 import { Client, GatewayIntentBits, Interaction, CommandInteraction, SlashCommandBuilder, ChannelType } from 'discord.js';
@@ -18,14 +67,15 @@ import { REST } from '@discordjs/rest';
 import { Routes } from 'discord-api-types/v10';
 import { LavalinkManager } from 'lavalink-client';
 
-import { deleteExpiredHistories } from './db/musicHistory.repository';
 import { getResumeState, clearResumeState, saveResumeState } from './db/resumeState.repository';
+import { getGuildVolume } from './db/volume.repository';
 import {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
-  getVoiceConnection
+  getVoiceConnection,
+  StreamType
 } from '@discordjs/voice';
 
 config();
@@ -86,7 +136,7 @@ client.lavalink = new LavalinkManager({
     },
 });
 
-import * as volumeModule from './commands/volume';
+import handleVolume from './commands/volume';
 
 // 명령어 등록
 const commands = [
@@ -98,54 +148,127 @@ const commands = [
     new SlashCommandBuilder().setName('queue').setDescription('현재 대기열을 확인합니다.'),
     new SlashCommandBuilder().setName('nowplaying').setDescription('현재 재생 중인 곡을 확인합니다.'),
     new SlashCommandBuilder().setName('음악채널지정').setDescription('음악 상태 메시지를 보낼 텍스트 채널을 지정합니다.').addChannelOption(opt => opt.setName('채널').setDescription('음악 상태 메시지를 보낼 텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
-    volumeModule.volumeCommand,
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
+// 명령어 캐시 파일 경로
+const COMMANDS_CACHE_PATH = path.join(__dirname, '../commands_cache.json');
+
 // 고급 명령어 동기화 함수: 변경된 명령어만 부분적으로 등록/수정/삭제
 async function syncCommands() {
     try {
-        // 1. 현재 등록된 명령어 목록 조회
-        const currentCommands = await rest.get(Routes.applicationCommands(CLIENT_ID));
-        const currentList = Array.isArray(currentCommands) ? currentCommands : [];
-        // 2. 코드 기준 명령어 목록(JSON)
+        // 명령어 정의 리스트 (JSON)
         const definedList = commands.map(cmd => cmd.toJSON());
-        // 3. 이름 기준 매핑
-        const currentMap = new Map(currentList.map((cmd: any) => [cmd.name, cmd]));
         const definedMap = new Map(definedList.map((cmd: any) => [cmd.name, cmd]));
-        let changed = false;
-        // 4. 삭제: 코드에 없는 명령어는 삭제
-        for (const cmd of currentList) {
-            if (!definedMap.has(cmd.name)) {
-                await rest.delete(Routes.applicationCommand(CLIENT_ID, cmd.id));
-                console.log(`[명령어 삭제] ${cmd.name}`);
-                changed = true;
-            }
-        }
-        // 5. 추가/수정
-        for (const def of definedList) {
-            const cur = currentMap.get(def.name);
-            if (!cur) {
-                // 새 명령어
-                await rest.post(Routes.applicationCommands(CLIENT_ID), { body: def });
-                console.log(`[명령어 추가] ${def.name}`);
-                changed = true;
+        
+        // 1. 캐시된 명령어 확인 (이전 실행 시 저장한 명령어 상태)
+        let cachedCommands = [];
+        let shouldSyncWithDiscord = false;
+        try {
+            if (fs.existsSync(COMMANDS_CACHE_PATH)) {
+                const cacheData = fs.readFileSync(COMMANDS_CACHE_PATH, 'utf8');
+                cachedCommands = JSON.parse(cacheData);
+                
+                // 캐시와 현재 정의 비교
+                const cachedMap = new Map(cachedCommands.map((cmd: any) => [cmd.name, cmd]));
+                
+                // 변경 여부 확인 (이름, 설명, 옵션 등)
+                for (const def of definedList) {
+                    const cached = cachedMap.get(def.name);
+                    if (!cached) {
+                        // 새 명령어
+                        console.log(`[명령어 캐시] 새 명령어 감지: ${def.name}`);
+                        shouldSyncWithDiscord = true;
+                        break;
+                    }
+                    
+                    // 내용 비교 (간소화된 비교)
+                    const defStr = JSON.stringify(def);
+                    const cachedStr = JSON.stringify(cached);
+                    if (defStr !== cachedStr) {
+                        console.log(`[명령어 캐시] 명령어 변경 감지: ${def.name}`);
+                        shouldSyncWithDiscord = true;
+                        break;
+                    }
+                }
+                
+                // 삭제된 명령어 확인
+                for (const cached of cachedCommands) {
+                    if (!definedMap.has(cached.name)) {
+                        console.log(`[명령어 캐시] 삭제된 명령어 감지: ${cached.name}`);
+                        shouldSyncWithDiscord = true;
+                        break;
+                    }
+                }
+                
+                // 변경이 없으면 Discord API 호출 생략
+                if (!shouldSyncWithDiscord) {
+                    console.log('[명령어 캐시] 명령어가 이미 최신 상태입니다. Discord API 호출을 생략합니다.');
+                    return;
+                }
             } else {
-                // 수정 필요 여부 확인(간단 비교)
-                const curStr = JSON.stringify({ ...cur, id: undefined, application_id: undefined, version: undefined, default_member_permissions: undefined });
-                const defStr = JSON.stringify(def);
-                if (curStr !== defStr) {
-                    await rest.patch(Routes.applicationCommand(CLIENT_ID, cur.id), { body: def });
-                    console.log(`[명령어 수정] ${def.name}`);
+                // 캐시 파일이 없으면 무조건 동기화
+                shouldSyncWithDiscord = true;
+                console.log('[명령어 캐시] 캐시 파일이 없습니다. 전체 명령어를 동기화합니다.');
+            }
+        } catch (e) {
+            // 캐시 파일 읽기 실패 시 전체 동기화
+            shouldSyncWithDiscord = true;
+            console.error('[명령어 캐시] 캐시 파일 읽기 오류:', e);
+        }
+        
+        // 2. Discord API와 동기화 필요한 경우만 수행
+        if (shouldSyncWithDiscord) {
+            // 현재 등록된 명령어 목록 조회
+            const currentCommands = await rest.get(Routes.applicationCommands(CLIENT_ID));
+            const currentList = Array.isArray(currentCommands) ? currentCommands : [];
+            const currentMap = new Map(currentList.map((cmd: any) => [cmd.name, cmd]));
+            
+            let changed = false;
+            
+            // 삭제: 코드에 없는 명령어는 삭제
+            for (const cmd of currentList) {
+                if (!definedMap.has(cmd.name)) {
+                    await rest.delete(Routes.applicationCommand(CLIENT_ID, cmd.id));
+                    console.log(`[명령어 삭제] ${cmd.name}`);
                     changed = true;
                 }
             }
-        }
-        if (changed) {
-            console.log('명령어가 변경된 부분만 동기화 완료!');
-        } else {
-            console.log('명령어가 이미 최신 상태입니다.');
+            
+            // 추가/수정
+            for (const def of definedList) {
+                const cur = currentMap.get(def.name);
+                if (!cur) {
+                    // 새 명령어
+                    await rest.post(Routes.applicationCommands(CLIENT_ID), { body: def });
+                    console.log(`[명령어 추가] ${def.name}`);
+                    changed = true;
+                } else {
+                    // 수정 필요 여부 확인(간단 비교)
+                    const curStr = JSON.stringify({ ...cur, id: undefined, application_id: undefined, version: undefined, default_member_permissions: undefined });
+                    const defStr = JSON.stringify(def);
+                    if (curStr !== defStr) {
+                        await rest.patch(Routes.applicationCommand(CLIENT_ID, cur.id), { body: def });
+                        console.log(`[명령어 수정] ${def.name}`);
+                        changed = true;
+                    }
+                }
+            }
+            
+            if (changed) {
+                console.log('명령어가 변경된 부분만 동기화 완료!');
+            } else {
+                console.log('명령어가 이미 최신 상태입니다.');
+            }
+            
+            // 3. 현재 명령어 상태를 캐시 파일로 저장
+            try {
+                fs.writeFileSync(COMMANDS_CACHE_PATH, JSON.stringify(definedList, null, 2), 'utf8');
+                console.log('[명령어 캐시] 명령어 상태 캐시 파일 업데이트 완료');
+            } catch (e) {
+                console.error('[명령어 캐시] 캐시 파일 저장 오류:', e);
+            }
         }
     } catch (error) {
         console.error('명령어 동기화 실패:', error);
@@ -192,75 +315,82 @@ process.on('uncaughtException', (err) => {
     console.error('[uncaughtException] 예기치 않은 오류:', err);
 });
 
+// interaction 이벤트 핸들러 및 버튼 컨트롤 처리
 client.on('interactionCreate', async (interaction: Interaction) => {
     try {
-        if (!interaction.isChatInputCommand()) return;
-        const command = interaction.commandName;
-        switch (command) {
-            case 'play':
-                await handlePlay(interaction as CommandInteraction);
-                break;
-            case 'pause':
-                await handlePause(interaction as CommandInteraction, client);
-                break;
-            case 'resume':
-                await handleResume(interaction as CommandInteraction, client);
-                break;
-            case 'skip':
-                await handleSkip(interaction as CommandInteraction, client);
-                break;
-            case 'stop':
-                await handleStop(interaction as CommandInteraction, client);
-                break;
-            case 'queue':
-                await handleQueue(interaction as CommandInteraction);
-                break;
-            case 'nowplaying':
-                await handleNowPlaying(interaction as CommandInteraction);
-                break;
-            case '음악채널지정':
-                await handleSetMusicChannel(interaction as CommandInteraction);
-                break;
-            case 'volume':
-                await volumeModule.default(interaction as CommandInteraction);
-                break;
+        // 슬래시 커맨드 처리
+        if (interaction.isChatInputCommand()) {
+            const command = interaction.commandName;
+            const commandHandlers: Record<string, (interaction: CommandInteraction, client: any) => Promise<void>> = {
+                play: handlePlay,
+                pause: handlePause,
+                resume: handleResume,
+                skip: handleSkip,
+                stop: handleStop,
+                queue: handleQueue,
+                nowplaying: handleNowPlaying,
+                음악채널지정: handleSetMusicChannel,
+                volume: handleVolume
+            };
+            const handler = commandHandlers[command];
+            if (!handler) return;
+            await handler(interaction as CommandInteraction, client);
+            // 음악 embed 메시지 항상 갱신
+            const { updateMusicStatusEmbed } = require('./handlers/musicStatusEmbed');
+            await updateMusicStatusEmbed(client, interaction.guildId!);
+            return;
+        }
+        // 버튼 인터랙션 처리
+        if (interaction.isButton()) {
+            const guildId = interaction.guildId!;
+            const { updateMusicStatusEmbed } = require('./handlers/musicStatusEmbed');
+            switch (interaction.customId) {
+                case 'music_pause_resume': {
+                    // 현재 상태에 따라 pause/resume 분기
+                    const player = client.lavalink.players.get(guildId);
+                    if (player) {
+                        if (player.paused) {
+                            player.pause(false);
+                            await interaction.reply({ content: '▶️ 음악을 다시 재생합니다.', ephemeral: true });
+                        } else {
+                            player.pause(true);
+                            await interaction.reply({ content: '⏸️ 음악을 일시정지합니다.', ephemeral: true });
+                        }
+                        await updateMusicStatusEmbed(client, guildId);
+                    } else {
+                        await interaction.reply({ content: '재생 중인 음악이 없습니다.', ephemeral: true });
+                    }
+                    break;
+                }
+                case 'music_stop': {
+                    const stop = require('./commands/stop').default;
+                    await stop({ ...interaction, isButton: true } as any, client);
+                    await updateMusicStatusEmbed(client, guildId);
+                    break;
+                }
+                case 'music_skip': {
+                    const skip = require('./commands/skip').default;
+                    await skip({ ...interaction, isButton: true } as any, client);
+                    await updateMusicStatusEmbed(client, guildId);
+                    break;
+                }
+                case 'music_queue': {
+                    const queue = require('./commands/queue').default;
+                    await queue({ ...interaction, isButton: true } as any);
+                    break;
+                }
+                default:
+                    await interaction.reply({ content: '알 수 없는 버튼입니다.', ephemeral: true });
+            }
+            return;
         }
     } catch (error) {
         console.error('[interactionCreate] 핸들러 오류:', error);
-        // 응답이 가능한 경우만 reply 시도
         if ('isRepliable' in interaction && (interaction as any).isRepliable() && !(interaction as any).replied) {
             try { await (interaction as any).reply('명령 처리 중 오류가 발생했습니다.'); } catch {}
         }
     }
 });
-
-function playNext(guildId: string, voiceChannelId: string, interaction: CommandInteraction | null) {
-    const queue = queues.get(guildId) || [];
-    if (!queue.length) {
-        nowPlaying.set(guildId, null);
-        if (interaction) interaction.followUp('대기열이 비었습니다.');
-        return;
-    }
-    const item = queue.shift()!;
-    nowPlaying.set(guildId, item);
-    queues.set(guildId, queue);
-    let player = client.lavalink.players.get(guildId);
-    if (!player) {
-        player = client.lavalink.create({
-            guildId,
-            voiceId: voiceChannelId,
-            textId: interaction ? interaction.channelId : undefined
-        });
-        player.connect();
-    }
-    player.play(item.track);
-    player.once('start', () => {
-        if (interaction) interaction.followUp(`재생 중: **${item.track.info.title}**`);
-    });
-    player.once('end', () => {
-        playNext(guildId, voiceChannelId, null);
-    });
-}
 
 // 자동 재접속
 client.on('voiceStateUpdate', async (oldState, newState) => {
@@ -310,8 +440,17 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             voiceIdleTimers.delete(guild.id);
             // 음악 재개
             const np = require('./utils/music').nowPlaying.get(guild.id);
-            if (np && np.audioPlayer && typeof np.audioPlayer.unpause === 'function') {
-                np.audioPlayer.unpause();
+            if (np && np.audioResource) {
+                await saveResumeState({
+                    guildId: guild.id,
+                    voiceChannelId: np.audioResource.metadata?.channelId || '',
+                    textChannelId: '',
+                    trackUrl: np.track?.query || np.track?.url || '',
+                    title: np.track?.title || '',
+                    requestedBy: np.requestedBy,
+                    seekTime: Math.floor(np.audioResource.playbackDuration / 1000),
+                    startedAt: new Date()
+                });
             }
             // 안내 embed 갱신
             try {
@@ -368,23 +507,30 @@ function attemptLavalinkReconnect(node: any) {
 
 // 안전한 종료: Ctrl+C(SIGINT) 시 모든 연결 해제 및 프로세스 종료
 process.on('SIGINT', async () => {
+    await gracefulShutdown();
+});
+
+// 핫 리로딩을 위한 안전한 종료 함수
+async function gracefulShutdown() {
     try {
         console.log('\n[서버 종료] 안전하게 종료 중...');
         // === 재생 상태 최신화 ===
         const { nowPlaying } = require('./utils/music');
-        for (const [guildId, np] of nowPlaying.entries()) {
+        if (nowPlaying && typeof nowPlaying.entries === 'function') {
+          for (const [guildId, np] of nowPlaying.entries()) {
             if (np && np.audioResource) {
-                await saveResumeState({
-                    guildId,
-                    voiceChannelId: np.audioResource.metadata?.channelId || '',
-                    textChannelId: '',
-                    trackUrl: np.track?.query || np.track?.url || '',
-                    title: np.track?.title || '',
-                    requestedBy: np.requestedBy,
-                    seekTime: Math.floor(np.audioResource.playbackDuration / 1000),
-                    startedAt: new Date()
-                });
+              await saveResumeState({
+                guildId,
+                voiceChannelId: np.audioResource.metadata?.channelId || '',
+                textChannelId: '',
+                trackUrl: np.track?.query || np.track?.url || '',
+                title: np.track?.title || '',
+                requestedBy: np.requestedBy,
+                seekTime: Math.floor(np.audioResource.playbackDuration / 1000),
+                startedAt: new Date()
+              });
             }
+          }
         }
         // Lavalink 연결 해제
         if (client.lavalink) {
@@ -398,9 +544,14 @@ process.on('SIGINT', async () => {
         console.log('[서버 종료] 모든 연결 해제 완료.');
     } catch (e) {
         console.error('[서버 종료] 에러:', e);
-    } finally {
-        process.exit(0);
     }
+}
+
+// 핫 리로딩을 위한 SIGUSR2 처리 (nodemon이 사용하는 시그널)
+process.once('SIGUSR2', async () => {
+    console.log('\n[핫 리로딩] 안전하게 상태 저장 중...');
+    await gracefulShutdown();
+    process.kill(process.pid, 'SIGUSR2');
 });
 
 import { initDb } from './db';
@@ -417,28 +568,126 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
     // === 서버 재시작 시 ResumeState 기반 자동 복구 ===
     const guilds = client.guilds.cache;
     for (const [guildId, guild] of guilds) {
+      console.log(`[resume] ${guild.name} 서버 자동 재생 시도 중...`);
       const resume = await getResumeState(guildId);
       if (resume && resume.voiceChannelId && resume.trackUrl) {
         try {
+          console.log(`[resume] ${guild.name}의 재생 정보: ${resume.title || '알 수 없는 곡'} (URL: ${resume.trackUrl.substring(0, 100)}...)`);
+          
+          // 보이스 채널 확인
           const voiceChannel = await guild.channels.fetch(resume.voiceChannelId);
-          if (!voiceChannel || voiceChannel.type !== 2) continue;
-          const connection = getVoiceConnection(guildId) || joinVoiceChannel({
+          if (!voiceChannel) {
+            console.error(`[resume] ${guild.name}: 보이스 채널을 찾을 수 없음 (ID: ${resume.voiceChannelId})`);
+            await clearResumeState(guildId);
+            continue;
+          }
+          
+          if (voiceChannel.type !== 2) {
+            console.error(`[resume] ${guild.name}: 음성 채널이 아님 (타입: ${voiceChannel.type})`);
+            await clearResumeState(guildId);
+            continue;
+          }
+          
+          console.log(`[resume] ${guild.name}: 보이스 채널 ${voiceChannel.name} 연결 시도`);
+          
+          // 연결 상태 확인
+          const existingConnection = getVoiceConnection(guildId);
+          if (existingConnection) {
+            console.log(`[resume] ${guild.name}: 기존 연결 종료 후 재연결`);
+            existingConnection.destroy();
+            await new Promise(r => setTimeout(r, 1000)); // 연결 완전히 종료 대기
+          }
+          
+          // 새 연결 시도
+          const connection = joinVoiceChannel({
             channelId: resume.voiceChannelId,
             guildId: guildId,
-            adapterCreator: (voiceChannel as any).guild.voiceAdapterCreator
+            adapterCreator: (voiceChannel as any).guild.voiceAdapterCreator,
+            selfDeaf: true
           });
-          const player = createAudioPlayer();
-          const resource = createAudioResource(resume.trackUrl, { inlineVolume: true });
-          if (resource.volume) resource.volume.setVolume(0.5); // 기본값(볼륨 DB 연동 가능)
-          player.on(AudioPlayerStatus.Idle, async () => {
+          
+          // URL 유효성 검사
+          if (!resume.trackUrl.startsWith('http')) {
+            console.error(`[resume] ${guild.name}: 유효하지 않은 URL (${resume.trackUrl})`);
             await clearResumeState(guildId);
             connection.destroy();
-          });
-          player.play(resource);
-          connection.subscribe(player);
-          console.log(`[resume] ${guild.name}에서 마지막 곡 자동 재생 시작`);
+            continue;
+          }
+          
+          console.log(`[resume] ${guild.name}: 오디오 플레이어 및 리소스 생성 중`);
+          const player = createAudioPlayer();
+          
+          try {
+            // 유튜브 URL을 직접 사용하지 않고 yt-dlp를 통해 실제 오디오 스트림 URL 가져오기
+            const { getYtDlpAudioUrl } = await import('./utils/yt-dlp');
+            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl);
+            
+            if (!audioStreamUrl) {
+              console.error(`[resume] ${guild.name}: 오디오 스트림 URL 가져오기 실패`);
+              await clearResumeState(guildId);
+              connection.destroy();
+              continue;
+            }
+            
+            const resource = createAudioResource(audioStreamUrl, { 
+              inlineVolume: true
+            });
+            
+            if (!resource) {
+              console.error(`[resume] ${guild.name}: 리소스 생성 실패`);
+              await clearResumeState(guildId);
+              connection.destroy();
+              continue;
+            }
+            
+            if (resource.volume) {
+              const volume = await getGuildVolume(guildId) || 50;
+              resource.volume.setVolume(volume / 100);
+              console.log(`[resume] ${guild.name}: 볼륨 설정 (${volume}%)`);
+            }
+            
+            // 오디오 플레이어 이벤트 설정
+            player.on('error', async (error) => {
+              console.error(`[resume] ${guild.name} 플레이어 오류:`, error);
+              await clearResumeState(guildId);
+              connection.destroy();
+            });
+            
+            player.on(AudioPlayerStatus.Idle, async () => {
+              console.log(`[resume] ${guild.name}: 재생 완료, 연결 종료`);
+              await clearResumeState(guildId);
+              connection.destroy();
+            });
+            
+            // 연결 에러 처리
+            connection.on('error', (error) => {
+              console.error(`[resume] ${guild.name} 연결 오류:`, error);
+              connection.destroy();
+            });
+            
+            // 연결 이벤트 처리
+            connection.on('stateChange', (oldState, newState) => {
+              console.log(`[resume] ${guild.name} 연결 상태 변경: ${oldState.status} -> ${newState.status}`);
+            });
+            
+            // 재생 시작
+            connection.subscribe(player);
+            player.play(resource);
+            console.log(`[resume] ${guild.name}에서 마지막 곡 자동 재생 시작`);
+          } catch (resourceError) {
+            console.error(`[resume] ${guild.name} 리소스 생성/재생 오류:`, resourceError);
+            connection.destroy();
+            await clearResumeState(guildId);
+          }
         } catch (e) {
-          console.error(`[resume] 자동 재생 실패:`, e);
+          console.error(`[resume] ${guild.name} 자동 재생 실패:`, e);
+          await clearResumeState(guildId);
+        }
+      } else {
+        if (resume) {
+          console.log(`[resume] ${guild.name}: 불완전한 재생 정보 (voiceChannelId: ${resume.voiceChannelId || '없음'}, trackUrl: ${resume.trackUrl ? '있음' : '없음'})`);
+        } else {
+          console.log(`[resume] ${guild.name}: 재생 정보 없음`);
         }
       }
     }
@@ -446,11 +695,16 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
 
   client.login(TOKEN);
 
-  // fetch polyfill (node 18+ 내장, 하위 호환용)
+  // fetch가 글로벌에 없으면 node-fetch polyfill
   // @ts-ignore
-  if (typeof fetch === 'undefined') global.fetch = (...args: any[]) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+  if (typeof fetch === 'undefined') {
+    // node-fetch v3+는 ESM only이므로 require 대신 동적 import 사용
+    (globalThis as any).fetch = function() {
+      return import('node-fetch').then(mod => mod.default.apply(null, arguments as any));
+    };
+  }
 
-  // 10분마다 만료된 기록 삭제
+  // music_history 만료 기록 주기적 삭제
   setInterval(async () => {
     try {
       await deleteExpiredHistories();
@@ -459,4 +713,5 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
       console.error('[music_history] 만료 기록 삭제 오류:', e);
     }
   }, 10 * 60 * 1000); // 10분
+
 })();

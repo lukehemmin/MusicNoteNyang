@@ -1,11 +1,10 @@
-import { CommandInteraction, ChannelType, TextChannel, PermissionsBitField } from 'discord.js';
+import { CommandInteraction, ChannelType, PermissionsBitField, TextChannel } from 'discord.js';
 import { setMusicChannel } from '../utils/musicChannelDB';
 
-export { ChannelType };
-
 export default async function handleSetMusicChannel(interaction: CommandInteraction) {
-    // options.getChannel은 CommandInteractionOptionResolver 타입에 없으므로 as any로 우회
-    const channel = (interaction.options as any).getChannel('채널');
+    // Discord.js v14: getChannel은 getChannel(name) 대신 getChannel(optionName) 사용 불가, getChannel 메서드 없음
+    // getChannel 대신 get('채널')로 channel option 추출
+    const channel = interaction.options.get('채널')?.channel;
     if (!channel || channel.type !== ChannelType.GuildText) {
         await interaction.reply({
             ephemeral: true,
@@ -23,12 +22,17 @@ export default async function handleSetMusicChannel(interaction: CommandInteract
             ephemeral: true,
             embeds: [{
                 color: 0xe74c3c,
-                description: '이 채널에 메시지를 보낼 권한이 없어요!'
+                description: '해당 채널에 메시지를 보낼 권한이 없습니다.'
             }]
         });
         return;
     }
     await setMusicChannel(interaction.guildId!, channel.id);
+
+    // 음악 상태 embed 메시지 전송 및 메시지 ID 기록
+    const { updateMusicStatusEmbed } = require('../handlers/musicStatusEmbed');
+    await updateMusicStatusEmbed(interaction.client, interaction.guildId!);
+
     await interaction.reply({
         embeds: [{
             color: 0x2ecc71,

@@ -1,66 +1,46 @@
-import { CommandInteraction, GuildMember, PermissionsBitField } from 'discord.js';
-import { queues, nowPlaying } from '../utils/music';
+import { CommandInteraction, ButtonInteraction, GuildMember, PermissionsBitField } from 'discord.js';
+import { MusicUtils } from '../utils/music';
+import { autoUpdateMusicStatusEmbed } from '../handlers/musicStatusEmbed';
+import { getVoiceConnection } from '@discordjs/voice';
 
-export default async function handleSkip(interaction: CommandInteraction, client: any) {
-    const member = interaction.member as GuildMember;
+export default async function handleSkip(interaction: CommandInteraction | ButtonInteraction, client: any) {
     const guildId = interaction.guildId!;
-    const queue = queues.get(guildId) || [];
-    const np = nowPlaying.get(guildId);
-    const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
-    // === pending(준비중) 상태도 재생 중으로 간주 ===
-    if (!np) {
-        await interaction.reply('재생 중인 곡이 없습니다.');
+    const member = interaction.member as GuildMember | null;
+    const userId = interaction.user.id;
+    const nowPlaying = MusicUtils['nowPlaying'].get(guildId);
+    
+    // Lavalink 플레이어 확인
+    const player = client.lavalink?.players.get(guildId);
+    
+    // yt-dlp 오디오 플레이어 확인 (audioPlayer가 있는지 확인)
+    const isYtDlpPlaying = nowPlaying?.audioPlayer !== undefined;
+    
+    if (!nowPlaying) {
+        await interaction.reply({ content: '⏭️ 건너뛸 곡이 없습니다.', ephemeral: true });
         return;
     }
-    if (np.requestedBy !== member.id && !isAdmin) {
-        await interaction.reply('요청자 또는 관리자만 스킵할 수 있습니다.');
+
+    const isAdmin = member?.permissions.has(PermissionsBitField.Flags.Administrator);
+    if (userId !== nowPlaying.requestedBy && !isAdmin) {
+        await interaction.reply({ content: '이 곡을 스킵할 권한이 없습니다. (요청자 또는 관리자만 가능)', ephemeral: true });
         return;
     }
-    // pending 상태면 준비중인 프로세스 종료
-    if (np.pending) {
-        const { abortPendingProcess } = await import('../utils/music');
-        abortPendingProcess(guildId);
-        nowPlaying.set(guildId, null);
-        const queue = queues.get(guildId) || [];
-        if (queue.length > 0 && interaction.channel) {
-            await interaction.reply('준비 중인 곡을 취소했습니다. 다음 곡을 준비합니다.');
-            import('../utils/music').then(mod => {
-                mod.playNextYtDlp(guildId, (interaction.member as GuildMember).voice?.channel, interaction);
-            });
-        } else {
-            await interaction.reply('준비 중인 곡을 취소했습니다. 대기열이 없어 음성방에서 나갑니다.');
-        }
-        return;
-    }
-    const player = client.lavalink.players.get(guildId);
-    if (player) {
+
+    // Lavalink 또는 yt-dlp 플레이어를 정지
+    if (player && player.stop) {
         player.stop();
-        // Lavalink 플레이어에서 stop() 호출 시 playNext가 자동 호출되는지 확인 필요
-        await interaction.reply('스킵되었습니다.');
-        return;
-    }
-    // === yt-dlp 직접 재생 분기 ===
-    // Discord.js Voice의 connection/player를 찾아서 stop (타입 가드 적용)
-    const { getVoiceConnection } = await import('@discordjs/voice');
-    const connection = getVoiceConnection(guildId);
-    const state: any = connection ? connection.state : undefined;
-    const sub = state && state.subscription ? state.subscription : undefined;
-    if (connection && sub) {
-        const player = sub.player;
-        player.stop(); // 현재 곡 정지
-        const queue = queues.get(guildId) || [];
-        if (queue.length > 0 && interaction.channel) {
-            // 다음 곡 playNextYtDlp 호출, 음성방을 나가지 않음
-            await interaction.reply('스킵합니다. 다음곡을 준비중입니다.');
-            import('../utils/music').then(mod => {
-                mod.playNextYtDlp(guildId, (interaction.member as GuildMember).voice?.channel, interaction);
-            });
-        } else {
+    } else if (isYtDlpPlaying && nowPlaying.audioPlayer) {
+        // yt-dlp 플레이어 정지
+        nowPlaying.audioPlayer.stop();
+    } else {
+        // 음성 연결 종료 시도
+        const connection = getVoiceConnection(guildId);
+        if (connection) {
             connection.destroy();
-            nowPlaying.set(guildId, null);
-            await interaction.reply('대기열이 없어 음성방에서 나갑니다.');
         }
-        return;
     }
-    await interaction.reply('스킵되었습니다.');
+    
+    MusicUtils['nowPlaying'].set(guildId, null);
+    await autoUpdateMusicStatusEmbed(client, guildId);
+    await interaction.reply({ content: '⏭️ 곡을 건너뛰었습니다.', ephemeral: true });
 }

@@ -1,37 +1,21 @@
-import { CommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { CommandInteraction } from 'discord.js';
+import { MusicUtils } from '../utils/music';
 import { setGuildVolume, getGuildVolume } from '../db/volume.repository';
-
-export const volumeCommand = new SlashCommandBuilder()
-    .setName('volume')
-    .setDescription('음악 재생 볼륨을 설정합니다 (0~100)')
-    .addIntegerOption(opt =>
-        opt.setName('수치')
-            .setDescription('설정할 볼륨 (0~100)')
-            .setMinValue(0)
-            .setMaxValue(100)
-            .setRequired(true)
-    );
 
 export default async function handleVolume(interaction: CommandInteraction) {
     const guildId = interaction.guildId!;
-    const value = interaction.options.get('수치', true).value as number;
-    if (value < 0 || value > 100) {
-        await interaction.reply({ content: '볼륨은 0~100 사이의 정수만 가능합니다.', ephemeral: true });
+    // 볼륨 옵션명은 'volume'으로 통일, 0~100만 허용
+    const option = interaction.options.get('volume', true);
+    let volume = typeof option.value === 'number' ? option.value : Number(option.value);
+    if (isNaN(volume) || volume < 0 || volume > 100) {
+        await interaction.reply({ content: '볼륨은 0~100 사이의 숫자만 입력할 수 있습니다.', ephemeral: true });
         return;
     }
-    await setGuildVolume(guildId, value);
-
-    // === 현재 재생 중인 곡의 볼륨도 즉시 반영 ===
-    try {
-        const { nowPlaying } = await import('../utils/music');
-        const np = nowPlaying.get(guildId);
-        if (np && np.audioResource && np.audioResource.volume) {
-            const vol = value === 0 ? 0.00001 : Math.max(0, Math.min(100, value)) / 100;
-            np.audioResource.volume.setVolume(vol);
-        }
-    } catch (e) {
-        console.error('[volume] 실시간 볼륨 반영 오류:', e);
+    await setGuildVolume(guildId, volume);
+    // 볼륨 적용: 현재 재생 중이면 바로 반영
+    const nowPlaying = MusicUtils['nowPlaying'].get(guildId);
+    if (nowPlaying && nowPlaying.audioResource && nowPlaying.audioResource.volume) {
+        nowPlaying.audioResource.volume.setVolume(volume / 100);
     }
-
-    await interaction.reply({ content: `🔊 볼륨이 ${value}%로 설정되었습니다.`, ephemeral: true });
+    await interaction.reply(`볼륨이 ${volume}%로 설정되었습니다.`);
 }

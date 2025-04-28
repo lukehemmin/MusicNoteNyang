@@ -1,0 +1,50 @@
+
+> musicnotenyang@1.0.0 start
+> node dist/index.js
+
+[디버깅] binDir: /root/ffmpeg/bin
+[디버깅] ffmpegExe: /root/ffmpeg/bin/ffmpeg
+[디버깅] fs.existsSync(ffmpegExe): false
+[디버깅] process.env.PATH: /root/MusicNoteNyang/node_modules/.bin:/root/node_modules/.bin:/node_modules/.bin:/root/.nvm/versions/node/v22.15.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/root/.cursor-server/cli/servers/Stable-fd861c8a80c0f9e4e35294b1915ee8a7b29ae850/server/bin/remote-cli:/root/.nvm/versions/node/v22.15.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+[디버깅] process.env.FFMPEG_PATH: undefined
+[디버깅] getFfmpegPath(): /usr/bin/ffmpeg
+[디버깅] checkDependency 실행: yt-dlp --version
+[환경체크] yt-dlp 버전 정보 확인 실패. 출력:
+2025.03.31
+
+[디버깅] checkDependency 실행: /usr/bin/ffmpeg --version
+[경고] /usr/bin/ffmpeg 실행 시 -version 옵션 관련 경고가 발생했으나, ffmpeg는 정상적으로 설치되어 있습니다.
+MariaDB 연결 및 테이블 자동 생성 완료!
+음표냥#5640 봇이 준비되었습니다.
+[명령어 캐시] 명령어가 이미 최신 상태입니다. Discord API 호출을 생략합니다.
+[resume] ღ𝓛𝓾𝓴𝓮𝓱𝓮𝓶𝓶𝓲𝓷ღ's server 서버 자동 재생 시도 중...
+[resume] ღ𝓛𝓾𝓴𝓮𝓱𝓮𝓶𝓶𝓲𝓷ღ's server: 재생 정보 없음
+[resume] 마크 서버입니다만? 서버 자동 재생 시도 중...
+[resume] 마크 서버입니다만?: 재생 정보 없음
+(node:906141) Warning: Supplying "ephemeral" for interaction response options is deprecated. Utilize flags instead.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[play] query: https://www.youtube.com/watch?v=gHxxU-Sot1Y
+[enqueue] 1050272692353372173 큐 추가: {
+  track: {
+    query: 'https://www.youtube.com/watch?v=gHxxU-Sot1Y',
+    title: 'https://www.youtube.com/watch?v=gHxxU-Sot1Y'
+  },
+  requestedBy: '337446676778319873'
+}
+[dequeue] 1050272692353372173 큐 pop: {
+  track: {
+    query: 'https://www.youtube.com/watch?v=gHxxU-Sot1Y',
+    title: 'https://www.youtube.com/watch?v=gHxxU-Sot1Y'
+  },
+  requestedBy: '337446676778319873'
+}
+[playNextYtDlp] queue: {
+  track: {
+    query: 'https://www.youtube.com/watch?v=gHxxU-Sot1Y',
+    title: 'https://www.youtube.com/watch?v=gHxxU-Sot1Y'
+  },
+  requestedBy: '337446676778319873'
+}
+[yt-dlp] 직접 실행: yt-dlp -f bestaudio --no-playlist --get-url https://www.youtube.com/watch?v=gHxxU-Sot1Y
+[yt-dlp] 종료 코드: 0
+[yt-dlp] 추출된 URL: https://rr5---sn-n3cgv5qc5oq-nf06.googlevideo.com/videoplayback?expire=1745824048&ei=0NQOaJ62H7zL2roPxYK0iA8&ip=218.55.36.251&id=o-AHB5NRPpalPXVcNXo4y4cV6dDjAirDCk2wwNyT_VMyHA&itag=251&source=youtube&requiressl=yes&xpc=EgVo2aDSNQ%3D%3D&met=1745802448%2C&mh=9X&mm=31%2C29&mn=sn-n3cgv5qc5oq-nf06%2Csn-n3cgv5qc5oq-bh26e&ms=au%2Crdu&mv=m&mvi=5&pl=24&rms=au%2Cau&initcwndbps=5603750&bui=AecWEAYi4VSYepM5kERm09_f9ho2H7xWr4HcJBWcJahypwHiKqYakibyUaKOxipwnLCRNi4PY9L169UD&vprv=1&svpuc=1&mime=audio%2Fwebm&ns=ckW5b55hEcJxondeppoUAiMQ&rqh=1&gir=yes&clen=153687592&dur=9020.641&lmt=1745729763641775&mt=1745802054&fvip=2&keepalive=yes&lmw=1&c=TVHTML5&sefc=1&txp=3308224&n=ircKvxkr7mLMbg&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cvprv%2Csvpuc%2Cmime%2Cns%2Crqh%2Cgir%2Cclen%2Cdur%2Clmt&lsparams=met%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=ACuhMU0wRgIhAPR0uRiPChJQ9qD5V6PzYwlGCGM2I1X3yKA7ovrX1Og9AiEAuirseJ00GPotvNufc8_3BeB8AHJLNwqCNFiTz0tgzGo%3D&sig=AJfQdSswRAIgZS0XoQe5up4oQJKOWXIiRxQeeX5frOcGfEj4SOh-Cv4CICaMMR6k9nLgZnya78bLR32bCm2px8iRGo-heF6G7lAI

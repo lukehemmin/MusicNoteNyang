@@ -1,32 +1,43 @@
-import { CommandInteraction } from 'discord.js';
-import { queues, nowPlaying } from '../utils/music';
+import { CommandInteraction, ButtonInteraction } from 'discord.js';
+import { MusicUtils, safeReply } from '../utils/music';
+import { autoUpdateMusicStatusEmbed } from '../handlers/musicStatusEmbed';
+import { getVoiceConnection } from '@discordjs/voice';
 
-export default async function handleStop(interaction: CommandInteraction, client: any) {
+export default async function handleStop(interaction: CommandInteraction | ButtonInteraction, client: any) {
     const guildId = interaction.guildId!;
-    // Lavalink 플레이어 중지
-    const player = client.lavalink.players.get(guildId);
-    if (player) player.destroy();
-    // yt-dlp/ffmpeg 직접 재생 중이면 AudioPlayer/VoiceConnection도 중지
-    const { nowPlaying, abortPendingProcess } = await import('../utils/music');
-    const np = nowPlaying.get(guildId);
-    if (np) {
-        if (np.audioPlayer && typeof np.audioPlayer.stop === 'function') {
-            np.audioPlayer.stop();
+    const nowPlaying = MusicUtils['nowPlaying'].get(guildId);
+    
+    // Lavalink 플레이어 확인
+    const player = client.lavalink?.players.get(guildId);
+    
+    // yt-dlp 오디오 플레이어 확인
+    const isYtDlpPlaying = nowPlaying?.audioPlayer !== undefined;
+    
+    if (player && player.stop) {
+        // Lavalink 플레이어 정지
+        player.stop();
+        MusicUtils['nowPlaying'].set(guildId, null);
+        MusicUtils['queues'].set(guildId, []);
+        await safeReply(interaction, '⏹️ 음악을 완전히 멈추고 대기열을 비웠어요.');
+        await autoUpdateMusicStatusEmbed(client, guildId);
+    } else if (isYtDlpPlaying && nowPlaying?.audioPlayer) {
+        // yt-dlp 플레이어 정지
+        nowPlaying.audioPlayer.stop();
+        MusicUtils['nowPlaying'].set(guildId, null);
+        MusicUtils['queues'].set(guildId, []);
+        await safeReply(interaction, '⏹️ 음악을 완전히 멈추고 대기열을 비웠어요.');
+        await autoUpdateMusicStatusEmbed(client, guildId);
+    } else {
+        // 음성 연결 직접 종료 시도
+        const connection = getVoiceConnection(guildId);
+        if (connection) {
+            connection.destroy();
+            MusicUtils['nowPlaying'].set(guildId, null);
+            MusicUtils['queues'].set(guildId, []);
+            await safeReply(interaction, '⏹️ 음악을 완전히 멈추고 대기열을 비웠어요.');
+            await autoUpdateMusicStatusEmbed(client, guildId);
+        } else {
+            await safeReply(interaction, '⏹️ 음악을 멈출 수 없습니다.');
         }
-        // 혹시 남아있는 프로세스도 안전하게 종료 (pending 상태 포함)
-        abortPendingProcess(guildId);
     }
-    // VoiceConnection도 안전하게 종료
-    const { getVoiceConnection } = await import('@discordjs/voice');
-    const conn = getVoiceConnection(guildId);
-    if (conn) conn.destroy();
-    // 큐/nowPlaying 비우기
-    queues.set(guildId, []);
-    nowPlaying.set(guildId, null);
-    await interaction.reply({
-        embeds: [{
-            color: 0xe74c3c,
-            description: '⏹️ 음악 재생을 완전히 멈추고 대기열도 모두 정리했어요!'
-        }]
-    });
 }

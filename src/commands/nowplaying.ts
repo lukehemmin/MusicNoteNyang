@@ -1,12 +1,17 @@
-import { CommandInteraction } from 'discord.js';
-import { nowPlaying } from '../utils/music';
+import { CommandInteraction, ButtonInteraction } from 'discord.js';
+import { MusicUtils } from '../utils/music';
 
-export default async function handleNowPlaying(interaction: CommandInteraction) {
+export default async function handleNowPlaying(interaction: CommandInteraction | ButtonInteraction) {
     const guildId = interaction.guildId!;
-    const np = nowPlaying.get(guildId);
-    if (!np) {
-        await interaction.reply('현재 재생 중인 곡이 없습니다.');
+    const nowPlaying = MusicUtils['nowPlaying'].get(guildId);
+    if (!nowPlaying || !nowPlaying.track) {
+        await interaction.reply({ content: '현재 재생 중인 곡이 없습니다.', ephemeral: true });
         return;
     }
-    await interaction.reply(`현재 재생 중: **${np.track.info.title}** (요청자: <@${np.requestedBy}>)`);
+    const title = MusicUtils.getTrackTitle(nowPlaying.track);
+    const url = MusicUtils.getTrackUrl(nowPlaying.track);
+    await interaction.reply({
+        content: `🎵 **지금 재생 중:** ${title}${url ? `\n🔗 [링크](${url})` : ''} (요청자: <@${nowPlaying.requestedBy}>)`,
+        ephemeral: true
+    });
 }
