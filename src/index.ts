@@ -569,20 +569,20 @@ async function gracefulShutdown() {
 }
 
 // 핫 리로딩을 위한 SIGUSR2 처리 (nodemon이 사용하는 시그널)
-process.once('SIGUSR2', async () => {
-    console.log('\n[핫 리로딩] 안전하게 상태 저장 중...');
-    await gracefulShutdown();
+// process.once('SIGUSR2', async () => {
+//     console.log('\n[핫 리로딩] 안전하게 상태 저장 중...');
+//     await gracefulShutdown();
     
-    // 5초 이내에 종료되지 않으면 강제 종료
-    const forceKillTimeout = setTimeout(() => {
-        console.log('[핫 리로딩] 타임아웃 - 강제로 프로세스를 종료합니다.');
-        process.kill(process.pid, 'SIGUSR2');
-    }, 5000);
+//     // 5초 이내에 종료되지 않으면 강제 종료
+//     const forceKillTimeout = setTimeout(() => {
+//         console.log('[핫 리로딩] 타임아웃 - 강제로 프로세스를 종료합니다.');
+//         process.kill(process.pid, 'SIGUSR2');
+//     }, 5000);
     
-    // 정상적으로 종료 신호 전달
-    clearTimeout(forceKillTimeout);
-    process.kill(process.pid, 'SIGUSR2');
-});
+//     // 정상적으로 종료 신호 전달
+//     clearTimeout(forceKillTimeout);
+//     process.kill(process.pid, 'SIGUSR2');
+// });
 
 import { initDb } from './db';
 import { ensureMusicChannelTables } from './db/musicChannelTables';
@@ -764,8 +764,16 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
     const input = data.toString().trim().toLowerCase();
     if (input === 'restart' || input === 're') {
       console.log('\n[커스텀 명령어] 재시작 명령을 감지했습니다. 프로세스를 재시작합니다...');
-      // nodemon에서 인식하는 'rs' 명령 시뮬레이션
-      process.stdout.write('rs\n');
+      // 안전하게 상태 저장 후 재시작
+      gracefulShutdown().then(() => {
+        console.log('[재시작] 안전하게 상태 저장 완료, 재시작 중...');
+        // nodemon에서 인식하는 'rs' 명령 시뮬레이션
+        process.stdout.write('rs\n');
+      }).catch((err) => {
+        console.error('[재시작] 상태 저장 중 오류 발생:', err);
+        // 오류가 발생해도 재시작 시도
+        process.stdout.write('rs\n');
+      });
     }
   });
 

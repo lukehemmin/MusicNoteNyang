@@ -82,56 +82,77 @@ export default async function handleSeek(interaction: CommandInteraction, client
             const query = 'query' in nowPlaying.track ? nowPlaying.track.query! : MusicUtils.getTrackUrl(nowPlaying.track);
             const title = MusicUtils.getTrackTitle(nowPlaying.track);
             
-            // 기존 플레이어 일시 중지
-            nowPlaying.audioPlayer.pause();
-            
-            // 새 오디오 URL 가져오기 (seekTime 지정)
-            const audioUrl = await getYtDlpAudioUrl(query, seekTime);
-            
-            if (!audioUrl) {
-                await interaction.editReply({
-                    embeds: [{
-                        color: 0xe74c3c,
-                        description: '⚠️ 오디오 스트림을 다시 추출하지 못했어요. 다시 시도해 주세요!'
-                    }]
-                });
-                // 플레이어 재시작
-                nowPlaying.audioPlayer.unpause();
-                return;
-            }
-            
-            // 새 오디오 리소스 생성
-            const resource = createAudioResource(audioUrl);
-            
-            // 볼륨 설정
-            const volume = await getGuildVolume(guildId);
-            if (volume && resource.volume) {
-                resource.volume.setVolume(volume / 100);
-            }
-            
-            // seek 정보 업데이트
-            nowPlaying.seek = seekTime * 1000;
-            
-            // 같은 플레이어로 새 리소스 재생
-            nowPlaying.audioResource = resource;
-            nowPlaying.audioPlayer.play(resource);
-            
-            // DB에 seek 위치 저장
-            if (nowPlaying.historyId) {
-                await updateHistorySeekAndExpire(
-                    nowPlaying.historyId,
-                    seekTime,
-                    new Date(Date.now() + 1000 * 60 * 60 * 24 * 7), // 7일
-                    query
-                );
-            }
-            
+            // 사용자에게 먼저 진행 중임을 알림
             await interaction.editReply({
                 embeds: [{
                     color: 0x3498db,
-                    description: `⏩ **${title}**의 ${MusicUtils.formatTime(seekTime)}로 이동했어요!`
+                    description: `🔄 **${title}**의 ${MusicUtils.formatTime(seekTime)} 위치로 준비 중...\n(음악은 계속 재생되다가 준비가 완료되면 전환됩니다)`
                 }]
             });
+            
+            // 기존 음악은 계속 재생 (일시 중지하지 않음)
+            // 백그라운드에서 새 오디오 URL 가져오기 (seekTime 지정)
+            getYtDlpAudioUrl(query, seekTime).then(async (audioUrl) => {
+                if (!audioUrl) {
+                    await interaction.editReply({
+                        embeds: [{
+                            color: 0xe74c3c,
+                            description: '⚠️ 오디오 스트림을 다시 추출하지 못했어요. 다시 시도해 주세요!'
+                        }]
+                    });
+                    return;
+                }
+                
+                // 이제 새 URL이 준비되었으므로 기존 플레이어 일시 중지
+                if (nowPlaying.audioPlayer) {
+                    nowPlaying.audioPlayer.pause();
+                }
+                
+                // 새 오디오 리소스 생성
+                const resource = createAudioResource(audioUrl);
+                
+                // 볼륨 설정
+                const volume = await getGuildVolume(guildId);
+                if (volume && resource.volume) {
+                    resource.volume.setVolume(volume / 100);
+                }
+                
+                // seek 정보 업데이트
+                nowPlaying.seek = seekTime * 1000;
+                
+                // 같은 플레이어로 새 리소스 재생
+                nowPlaying.audioResource = resource;
+                nowPlaying.audioPlayer.play(resource);
+                
+                // DB에 seek 위치 저장
+                if (nowPlaying.historyId) {
+                    await updateHistorySeekAndExpire(
+                        nowPlaying.historyId,
+                        seekTime,
+                        new Date(Date.now() + 1000 * 60 * 60 * 24 * 7), // 7일
+                        query
+                    );
+                }
+                
+                await interaction.editReply({
+                    embeds: [{
+                        color: 0x2ecc71,
+                        description: `⏩ **${title}**의 ${MusicUtils.formatTime(seekTime)}로 이동 완료!`
+                    }]
+                });
+                
+                // 음악 상태 메시지 업데이트
+                await autoUpdateMusicStatusEmbed(client, guildId);
+            }).catch(async (error) => {
+                console.error('Seek URL 가져오기 중 오류:', error);
+                await interaction.editReply({
+                    embeds: [{
+                        color: 0xe74c3c,
+                        description: '⚠️ 시간 이동 중 오류가 발생했어요. 다시 시도해 주세요!'
+                    }]
+                });
+            });
+            
         } else {
             await interaction.editReply({
                 embeds: [{
@@ -139,10 +160,10 @@ export default async function handleSeek(interaction: CommandInteraction, client
                     description: '⚠️ 현재 재생 중인 플레이어를 찾을 수 없어요. 다시 시도해 주세요!'
                 }]
             });
+            
+            // 음악 상태 메시지 업데이트
+            await autoUpdateMusicStatusEmbed(client, guildId);
         }
-        
-        // 음악 상태 메시지 업데이트
-        await autoUpdateMusicStatusEmbed(client, guildId);
     } catch (error) {
         console.error('Seek 명령어 처리 중 오류:', error);
         await interaction.editReply({
