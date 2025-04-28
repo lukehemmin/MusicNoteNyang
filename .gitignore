@@ -4,3 +4,4 @@ dist
 yt-dlp/yt-dlp.exe
 ffmpeg/bin/*.*
 .cache/yt-dlp/
+commands_cache.json
