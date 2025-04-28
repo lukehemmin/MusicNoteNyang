@@ -148,6 +148,7 @@ const commands = [
     new SlashCommandBuilder().setName('queue').setDescription('현재 대기열을 확인합니다.'),
     new SlashCommandBuilder().setName('nowplaying').setDescription('현재 재생 중인 곡을 확인합니다.'),
     new SlashCommandBuilder().setName('음악채널지정').setDescription('음악 상태 메시지를 보낼 텍스트 채널을 지정합니다.').addChannelOption(opt => opt.setName('채널').setDescription('음악 상태 메시지를 보낼 텍스트 채널').addChannelTypes(ChannelType.GuildText).setRequired(true)),
+    new SlashCommandBuilder().setName('seek').setDescription('재생 중인 음악의 시간을 이동합니다.').addIntegerOption(opt => opt.setName('초').setDescription('이동할 시간(초)').setRequired(true)),
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -284,6 +285,7 @@ import handleStop from './commands/stop';
 import handleQueue from './commands/queue';
 import handleNowPlaying from './commands/nowplaying';
 import handleSetMusicChannel from './commands/setmusicchannel';
+import handleSeek from './commands/seek';
 
 // 음악 큐 관리 (길드별 큐)
 interface QueueItem {
@@ -330,7 +332,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 queue: handleQueue,
                 nowplaying: handleNowPlaying,
                 음악채널지정: handleSetMusicChannel,
-                volume: handleVolume
+                volume: handleVolume,
+                seek: handleSeek
             };
             const handler = commandHandlers[command];
             if (!handler) return;
@@ -508,15 +511,29 @@ function attemptLavalinkReconnect(node: any) {
 // 안전한 종료: Ctrl+C(SIGINT) 시 모든 연결 해제 및 프로세스 종료
 process.on('SIGINT', async () => {
     await gracefulShutdown();
+    // 명시적으로 프로세스 종료
+    process.exit(0);
 });
 
 // 핫 리로딩을 위한 안전한 종료 함수
 async function gracefulShutdown() {
     try {
         console.log('\n[서버 종료] 안전하게 종료 중...');
+        
+        // 안전 타임아웃 설정 (5초 후 강제 종료)
+        const forceExitTimeout = setTimeout(() => {
+            console.log('[서버 종료] 타임아웃 - 강제 종료합니다.');
+            process.exit(1);
+        }, 5000);
+        
         // === 재생 상태 최신화 ===
-        const { nowPlaying } = require('./utils/music');
+        const { nowPlaying, abortPendingProcess } = require('./utils/music');
         if (nowPlaying && typeof nowPlaying.entries === 'function') {
+          // 모든 길드에 대한 대기 중인 프로세스 중단
+          for (const guildId of nowPlaying.keys()) {
+            abortPendingProcess(guildId);
+          }
+          
           for (const [guildId, np] of nowPlaying.entries()) {
             if (np && np.audioResource) {
               await saveResumeState({
@@ -541,6 +558,10 @@ async function gracefulShutdown() {
         }
         // Discord 클라이언트 종료
         await client.destroy();
+        
+        // 타임아웃 취소 (정상 종료됨)
+        clearTimeout(forceExitTimeout);
+        
         console.log('[서버 종료] 모든 연결 해제 완료.');
     } catch (e) {
         console.error('[서버 종료] 에러:', e);
@@ -551,6 +572,15 @@ async function gracefulShutdown() {
 process.once('SIGUSR2', async () => {
     console.log('\n[핫 리로딩] 안전하게 상태 저장 중...');
     await gracefulShutdown();
+    
+    // 5초 이내에 종료되지 않으면 강제 종료
+    const forceKillTimeout = setTimeout(() => {
+        console.log('[핫 리로딩] 타임아웃 - 강제로 프로세스를 종료합니다.');
+        process.kill(process.pid, 'SIGUSR2');
+    }, 5000);
+    
+    // 정상적으로 종료 신호 전달
+    clearTimeout(forceKillTimeout);
     process.kill(process.pid, 'SIGUSR2');
 });
 
@@ -620,7 +650,7 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
           try {
             // 유튜브 URL을 직접 사용하지 않고 yt-dlp를 통해 실제 오디오 스트림 URL 가져오기
             const { getYtDlpAudioUrl } = await import('./utils/yt-dlp');
-            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl);
+            const audioStreamUrl = await getYtDlpAudioUrl(resume.trackUrl, resume.seekTime);
             
             if (!audioStreamUrl) {
               console.error(`[resume] ${guild.name}: 오디오 스트림 URL 가져오기 실패`);
@@ -628,6 +658,8 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
               connection.destroy();
               continue;
             }
+            
+            console.log(`[resume] ${guild.name}: 이전 재생 위치 ${resume.seekTime}초부터 재생 시작`);
             
             const resource = createAudioResource(audioStreamUrl, { 
               inlineVolume: true

@@ -29,6 +29,7 @@ export interface QueueItem {
     audioResource?: any;
     audioPlayer?: any;
     pending?: boolean;
+    historyId?: number;
 }
 
 export interface PendingProcess {
@@ -286,7 +287,7 @@ export class MusicUtils {
         };
     }
 
-    private static formatTime(sec: number) {
+    public static formatTime(sec: number) {
         if (!sec || isNaN(sec)) return '0:00';
         const m = Math.floor(sec / 60);
         const s = Math.floor(sec % 60);

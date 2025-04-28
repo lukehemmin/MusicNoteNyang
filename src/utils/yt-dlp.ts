@@ -48,14 +48,15 @@ function isUrl(str: string): boolean {
 }
 
 // 쿼리에 대한 캐시 키 생성
-function getCacheKey(query: string): string {
-    return crypto.createHash('md5').update(query).digest('hex');
+function getCacheKey(query: string, seekTime: number = 0): string {
+    // seekTime에 따라 다른 캐시 키 생성 (동일 영상의 다른 위치)
+    return crypto.createHash('md5').update(`${query}_seek_${seekTime}`).digest('hex');
 }
 
 // 캐시에서 URL 가져오기
-function getCachedUrl(query: string): string | null {
+function getCachedUrl(query: string, seekTime: number = 0): string | null {
     try {
-        const cacheKey = getCacheKey(query);
+        const cacheKey = getCacheKey(query, seekTime);
         const cachePath = path.join(CACHE_DIR, cacheKey);
         
         if (fs.existsSync(cachePath)) {
@@ -65,7 +66,7 @@ function getCachedUrl(query: string): string | null {
             // 캐시가 유효한 경우
             if (fileAge < CACHE_EXPIRY) {
                 const cachedData = fs.readFileSync(cachePath, 'utf8');
-                console.log(`[yt-dlp 캐시] 캐시에서 URL 로드: ${query}`);
+                console.log(`[yt-dlp 캐시] 캐시에서 URL 로드: ${query} (시작 위치: ${seekTime}초)`);
                 return cachedData;
             }
         }
@@ -77,20 +78,20 @@ function getCachedUrl(query: string): string | null {
 }
 
 // URL을 캐시에 저장
-function cacheUrl(query: string, url: string): void {
+function cacheUrl(query: string, url: string, seekTime: number = 0): void {
     try {
-        const cacheKey = getCacheKey(query);
+        const cacheKey = getCacheKey(query, seekTime);
         const cachePath = path.join(CACHE_DIR, cacheKey);
         fs.writeFileSync(cachePath, url);
-        console.log(`[yt-dlp 캐시] URL 캐싱 완료: ${query}`);
+        console.log(`[yt-dlp 캐시] URL 캐싱 완료: ${query} (시작 위치: ${seekTime}초)`);
     } catch (err) {
         console.error('[yt-dlp 캐시] 캐시 저장 오류:', err);
     }
 }
 
-export async function getYtDlpAudioUrl(query: string): Promise<string | null> {
+export async function getYtDlpAudioUrl(query: string, seekTime: number = 0): Promise<string | null> {
     // 1. 캐시에서 확인
-    const cachedUrl = getCachedUrl(query);
+    const cachedUrl = getCachedUrl(query, seekTime);
     if (cachedUrl) {
         return cachedUrl;
     }
@@ -110,6 +111,13 @@ export async function getYtDlpAudioUrl(query: string): Promise<string | null> {
             '--no-warnings',               // 경고 메시지 출력 안 함
             '--no-progress'                // 진행 표시줄 숨기기
         ];
+        
+        // seekTime이 있으면 시작 시간 옵션 추가 (초 단위)
+        if (seekTime > 0) {
+            console.log(`[yt-dlp] ${seekTime}초부터 재생을 시작합니다.`);
+            args.push('--downloader-args', `ffmpeg:-ss ${seekTime}`);
+        }
+        
         if (!isUrl(query)) {
             args.push('--default-search', 'ytsearch');
             args.push('--max-downloads', '1'); // 검색 결과 제한
@@ -129,7 +137,7 @@ export async function getYtDlpAudioUrl(query: string): Promise<string | null> {
                 const finalUrl = url.trim().split('\n')[0];
                 console.log(`[yt-dlp] 추출된 URL: ${finalUrl}`);
                 // 캐시에 저장
-                cacheUrl(query, finalUrl);
+                cacheUrl(query, finalUrl, seekTime);
                 resolve(finalUrl);
             } else {
                 console.error(`[yt-dlp] 오디오 URL 추출 실패. query: ${query}, code: ${code}, stderr: ${errorLog}`);
