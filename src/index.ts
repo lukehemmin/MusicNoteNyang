@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 const rootDir = path.resolve(__dirname, '../..');
 const binDir = path.join(rootDir, 'ffmpeg', 'bin');
 const exeName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
@@ -684,9 +684,12 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
               continue;
             }
             
-            const resource = createAudioResource(audioStreamUrl, { 
-              inlineVolume: true
-            });
+            // 오디오 리소스 생성 (ffmpeg로 seek 적용)
+            const ffmpegPath = process.env.FFMPEG_PATH || getCustomFfmpegPath() || 'ffmpeg';
+            // ffmpeg: seek 후 raw PCM 출력
+            const ffmpegArgs = ['-ss', finalSeekTime.toString(), '-i', audioStreamUrl, '-analyzeduration', '0', '-loglevel', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'];
+            const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+            const resource = createAudioResource(ffmpegProc.stdout, { inputType: StreamType.Raw, inlineVolume: true });
             
             if (!resource) {
               console.error(`[resume] ${guild.name}: 리소스 생성 실패`);
@@ -701,17 +704,32 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
               console.log(`[resume] ${guild.name}: 볼륨 설정 (${volume}%)`);
             }
             
+            // nowPlaying 맵에 현재 재생 정보 설정 - seek 명령어에서 사용
+            const { MusicUtils } = await import('./utils/music');
+            MusicUtils['nowPlaying'].set(guildId, {
+                track: { 
+                    title: resume.title || '제목 없음', 
+                    query: resume.trackUrl 
+                },
+                requestedBy: resume.requestedBy || '알 수 없음',
+                audioPlayer: player,
+                audioResource: resource,
+                seek: finalSeekTime * 1000 // ms 단위로 변환하여 저장
+            });
+            
             // 오디오 플레이어 이벤트 설정
             player.on('error', async (error) => {
               console.error(`[resume] ${guild.name} 플레이어 오류:`, error);
               await clearResumeState(guildId);
               connection.destroy();
+              MusicUtils['nowPlaying'].set(guildId, null);
             });
             
             player.on(AudioPlayerStatus.Idle, async () => {
               console.log(`[resume] ${guild.name}: 재생 완료, 연결 종료`);
               await clearResumeState(guildId);
               connection.destroy();
+              MusicUtils['nowPlaying'].set(guildId, null);
             });
             
             // 연결 에러 처리
@@ -723,6 +741,43 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
             // 연결 이벤트 처리
             connection.on('stateChange', (oldState, newState) => {
               console.log(`[resume] ${guild.name} 연결 상태 변경: ${oldState.status} -> ${newState.status}`);
+            });
+            
+            // 재생 시간 주기적으로 저장 (30초마다)
+            let currentPlayTime = finalSeekTime;
+            const playTimeUpdater = setInterval(async () => {
+                if (player.state.status === AudioPlayerStatus.Playing) {
+                    currentPlayTime += 30; // 30초씩 증가
+                    console.log(`[resume] ${guild.name}: 재생 시간 업데이트 - ${currentPlayTime}초`);
+                    
+                    // DB에 현재 재생 시간 저장
+                    await saveResumeState({
+                        guildId,
+                        voiceChannelId: resume.voiceChannelId,
+                        textChannelId: resume.textChannelId,
+                        trackUrl: resume.trackUrl,
+                        title: resume.title,
+                        requestedBy: resume.requestedBy,
+                        seekTime: currentPlayTime,
+                        startedAt: new Date()
+                    });
+                    
+                    // nowPlaying 정보도 업데이트
+                    const np = MusicUtils['nowPlaying'].get(guildId);
+                    if (np) {
+                        np.seek = currentPlayTime * 1000; // ms 단위로 변환
+                    }
+                }
+            }, 30000); // 30초마다 실행
+            
+            // 플레이어가 끝나면 타이머 정리
+            player.on(AudioPlayerStatus.Idle, () => {
+                clearInterval(playTimeUpdater);
+            });
+            
+            // 에러 발생 시 타이머 정리
+            player.on('error', () => {
+                clearInterval(playTimeUpdater);
             });
             
             // 재생 시작
@@ -764,16 +819,44 @@ import { ensureMusicChannelTables } from './db/musicChannelTables';
     const input = data.toString().trim().toLowerCase();
     if (input === 'restart' || input === 're') {
       console.log('\n[커스텀 명령어] 재시작 명령을 감지했습니다. 프로세스를 재시작합니다...');
-      // 안전하게 상태 저장 후 재시작
-      gracefulShutdown().then(() => {
-        console.log('[재시작] 안전하게 상태 저장 완료, 재시작 중...');
-        // nodemon에서 인식하는 'rs' 명령 시뮬레이션
-        process.stdout.write('rs\n');
-      }).catch((err) => {
-        console.error('[재시작] 상태 저장 중 오류 발생:', err);
-        // 오류가 발생해도 재시작 시도
-        process.stdout.write('rs\n');
-      });
+      
+      // 실행 환경 감지 (nodemon vs ts-node)
+      const isNodemon = process.env.npm_lifecycle_script?.includes('nodemon');
+      
+      if (isNodemon) {
+        // nodemon 환경: 기존 로직 사용
+        gracefulShutdown().then(() => {
+          console.log('[재시작] 안전하게 상태 저장 완료, 재시작 중...');
+          // nodemon에서 인식하는 'rs' 명령 시뮬레이션
+          process.stdout.write('rs\n');
+        }).catch((err) => {
+          console.error('[재시작] 상태 저장 중 오류 발생:', err);
+          // 오류가 발생해도 재시작 시도
+          process.stdout.write('rs\n');
+        });
+      } else {
+        // ts-node 직접 실행 환경: 직접 프로세스 재시작
+        gracefulShutdown().then(() => {
+          console.log('[재시작] 안전하게 상태 저장 완료, 재시작 중...');
+          
+          // ts-node로 재시작
+          const { spawn } = require('child_process');
+          
+          // npx ts-node src/index.ts 명령어로 재시작
+          const child = spawn('npx', ['ts-node', 'src/index.ts'], {
+            detached: true,
+            stdio: 'inherit',
+            shell: true
+          });
+          
+          // 현재 프로세스 종료
+          child.unref();
+          process.exit(0);
+        }).catch((err) => {
+          console.error('[재시작] 상태 저장 중 오류 발생:', err);
+          process.exit(1);
+        });
+      }
     }
   });
 

@@ -5,6 +5,10 @@ import { getYtDlpAudioUrl } from '../utils/yt-dlp';
 import { createAudioResource, AudioPlayerStatus } from '@discordjs/voice';
 import { getGuildVolume } from '../db/volume.repository';
 import { updateHistorySeekAndExpire } from '../db/musicHistory.repository';
+import { saveResumeState } from '../db/resumeState.repository';
+import { spawn } from 'child_process';
+import { StreamType } from '@discordjs/voice';
+import { getCustomFfmpegPath } from '../utils/ffmpeg-path';
 
 export default async function handleSeek(interaction: CommandInteraction, client: any) {
     const guildId = interaction.guildId!;
@@ -71,6 +75,25 @@ export default async function handleSeek(interaction: CommandInteraction, client
             // 시크 정보 업데이트
             nowPlaying.seek = seekTime * 1000;
             
+            // ResumeState 테이블에도 seek 위치 저장
+            const query = 'query' in nowPlaying.track ? nowPlaying.track.query! : MusicUtils.getTrackUrl(nowPlaying.track);
+            const title = MusicUtils.getTrackTitle(nowPlaying.track);
+            try {
+                await saveResumeState({
+                    guildId,
+                    // @ts-ignore - 런타임에 정상 작동함
+                    voiceChannelId: interaction.member?.voice?.channel?.id || '',
+                    textChannelId: interaction.channelId,
+                    trackUrl: query,
+                    title,
+                    requestedBy: nowPlaying.requestedBy,
+                    seekTime,
+                    startedAt: new Date()
+                });
+            } catch (error) {
+                console.error('ResumeState 저장 오류:', error);
+            }
+            
             await interaction.editReply({
                 embeds: [{
                     color: 0x3498db,
@@ -90,6 +113,26 @@ export default async function handleSeek(interaction: CommandInteraction, client
                 }]
             });
             
+            // 시크 정보 업데이트
+            nowPlaying.seek = seekTime * 1000;
+            
+            // ResumeState 테이블에도 seek 위치 저장
+            try {
+                await saveResumeState({
+                    guildId,
+                    // @ts-ignore - 런타임에 정상 작동함
+                    voiceChannelId: interaction.member?.voice?.channel?.id || '',
+                    textChannelId: interaction.channelId,
+                    trackUrl: query,
+                    title,
+                    requestedBy: nowPlaying.requestedBy,
+                    seekTime,
+                    startedAt: new Date()
+                });
+            } catch (error) {
+                console.error('ResumeState 저장 오류:', error);
+            }
+            
             // 기존 음악은 계속 재생 (일시 중지하지 않음)
             // 백그라운드에서 새 오디오 URL 가져오기 (seekTime 지정)
             getYtDlpAudioUrl(query, seekTime).then(async (audioUrl) => {
@@ -108,8 +151,11 @@ export default async function handleSeek(interaction: CommandInteraction, client
                     nowPlaying.audioPlayer.pause();
                 }
                 
-                // 새 오디오 리소스 생성
-                const resource = createAudioResource(audioUrl);
+                // 새 오디오 리소스 생성 (ffmpeg로 seek 적용)
+                const ffmpegPath = process.env.FFMPEG_PATH || getCustomFfmpegPath() || 'ffmpeg';
+                const ffmpegArgs = ['-ss', seekTime.toString(), '-i', audioUrl, '-analyzeduration', '0', '-loglevel', '0', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'];
+                const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+                const resource = createAudioResource(ffmpegProc.stdout, { inputType: StreamType.Raw, inlineVolume: true });
                 
                 // 볼륨 설정
                 const volume = await getGuildVolume(guildId);
@@ -132,6 +178,23 @@ export default async function handleSeek(interaction: CommandInteraction, client
                         new Date(Date.now() + 1000 * 60 * 60 * 24 * 7), // 7일
                         query
                     );
+                }
+                
+                // ResumeState 테이블에도 seek 위치 저장
+                try {
+                    await saveResumeState({
+                        guildId,
+                        // @ts-ignore - 런타임에 정상 작동함
+                        voiceChannelId: interaction.member?.voice?.channel?.id || '',
+                        textChannelId: interaction.channelId,
+                        trackUrl: query,
+                        title,
+                        requestedBy: nowPlaying.requestedBy,
+                        seekTime,
+                        startedAt: new Date()
+                    });
+                } catch (error) {
+                    console.error('ResumeState 저장 오류:', error);
                 }
                 
                 await interaction.editReply({

@@ -222,14 +222,44 @@ export class MusicUtils {
                 lastSeek: 0
             });
             
+            // 재생 시간 주기적으로 저장 (30초마다)
+            let currentPlayTime = 0;
+            const playTimeUpdater = setInterval(async () => {
+                if (player.state.status === AudioPlayerStatus.Playing) {
+                    currentPlayTime += 30; // 30초씩 증가
+                    
+                    // DB에 현재 재생 시간 저장
+                    await saveResumeState({
+                        guildId,
+                        voiceChannelId: voiceChannel.id,
+                        textChannelId: interaction ? interaction.channelId : '',
+                        trackUrl: query,
+                        title: MusicUtils.getTrackTitle(queue.track),
+                        requestedBy: queue.requestedBy,
+                        seekTime: currentPlayTime,
+                        startedAt: new Date()
+                    });
+                    
+                    // nowPlaying 정보도 업데이트
+                    const np = MusicUtils.nowPlaying.get(guildId);
+                    if (np) {
+                        np.seek = currentPlayTime * 1000; // ms 단위로 변환
+                    }
+                }
+            }, 30000); // 30초마다 실행
+            
             // 재생 완료 이벤트 처리
             player.on(AudioPlayerStatus.Idle, async () => {
+                // 타이머 정리
+                clearInterval(playTimeUpdater);
                 // 다음 곡 재생
                 await MusicUtils.playNextYtDlp(guildId, voiceChannel, null, client);
             });
             
             // 오류 처리
             player.on('error', async (error) => {
+                // 타이머 정리
+                clearInterval(playTimeUpdater);
                 console.error('플레이어 오류:', error);
                 await MusicUtils.playNextYtDlp(guildId, voiceChannel, null, client);
             });
